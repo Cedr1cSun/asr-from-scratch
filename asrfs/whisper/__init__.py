@@ -5,4 +5,8 @@ from asrfs.whisper.model import (
     LOSS_FAMILY,
     build_model,
     build_processor,
+    decode,
+    load_checkpoint,
+    save_checkpoint,
 )
+from asrfs.whisper.trainer import build_trainer

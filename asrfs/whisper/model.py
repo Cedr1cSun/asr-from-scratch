@@ -69,6 +69,8 @@ def build_model(cfg: dict) -> WhisperForConditionalGeneration:
     config = WhisperConfig(**SIZE_PRESETS[m["size"]], apply_spec_augment=m["apply_spec_augment"])
     model = WhisperForConditionalGeneration(config)
     model.generation_config = GenerationConfig.from_pretrained(tokenizer_source(m["size"]))
+    # decode 契约的解码长度单一来源:cfg model.generation_max_length -> generation_config
+    model.generation_config.max_new_tokens = int(m["generation_max_length"])
     return model
 
 
@@ -85,6 +87,34 @@ def init_report(model: torch.nn.Module) -> dict:
         "enc_l0_q_std": enc_attn.std().item(),
         "dec_l0_q_std": dec_attn.std().item(),
     }
+
+
+def decode(model, processor, batch) -> list:
+    """适配契约 decode:generate + batch_decode;容忍 batch 携带 labels 等训练键并忽略。"""
+    input_features = batch["input_features"]  # 只取声学输入,labels 等其余键就地忽略
+    input_features = input_features.to(next(model.parameters()).device)
+    was_training = model.training
+    model.eval()
+    with torch.no_grad():
+        pred_ids = model.generate(
+            input_features, max_new_tokens=model.generation_config.max_new_tokens
+        )
+    if was_training:
+        model.train()
+    return processor.tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
+
+
+def save_checkpoint(model, processor, out_dir: str) -> None:
+    """适配契约 save_checkpoint:标准 save_pretrained 目录(SURE-EVAL 以 MODEL_PATH 指向即可加载)。"""
+    model.save_pretrained(out_dir)
+    processor.save_pretrained(out_dir)
+
+
+def load_checkpoint(cfg: dict, ckpt_dir: str) -> tuple:
+    """适配契约 load_checkpoint。cfg 为契约签名要求;whisper 侧加载不需读它。"""
+    model = WhisperForConditionalGeneration.from_pretrained(ckpt_dir)
+    processor = WhisperProcessor.from_pretrained(ckpt_dir)
+    return model, processor
 
 
 if __name__ == "__main__":

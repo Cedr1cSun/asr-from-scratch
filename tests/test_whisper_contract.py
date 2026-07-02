@@ -17,6 +17,10 @@ EXPECTED_SIGNATURES = {
     "build_dataset": ["cfg", "processor", "mode"],
     "make_example": ["processor", "audio", "sampling_rate", "text"],
     "build_collator": ["cfg", "processor", "model"],
+    "build_trainer": ["cfg", "model", "processor", "train_ds", "eval_ds", "collator", "overrides"],
+    "decode": ["model", "processor", "batch"],
+    "save_checkpoint": ["model", "processor", "out_dir"],
+    "load_checkpoint": ["cfg", "ckpt_dir"],
 }
 
 
@@ -60,3 +64,4 @@ def test_build_model_from_cfg():
     assert 750e6 < report["params_total"] < 790e6
     assert report["frozen"] == whisper.EXPECTED_FROZEN
     assert 0.01 < report["enc_l0_q_std"] < 0.03
+    assert model.generation_config.max_new_tokens == cfg["model"]["generation_max_length"]
