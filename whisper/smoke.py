@@ -30,13 +30,14 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=300)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--sample-index", type=int, default=0)
+    parser.add_argument("--size", type=str, default="medium", choices=["small", "medium"])
     args = parser.parse_args()
 
     device = torch.device("cuda")
     torch.manual_seed(0)
 
-    processor = build_processor()
-    model = build_model().to(device)  # FP32
+    processor = build_processor(args.size)
+    model = build_model(args.size).to(device)  # FP32
     report = init_report(model)
     print(f"params: {report['params_total'] / 1e6:.1f}M, frozen: {report['frozen'] or 'none'}")
 
