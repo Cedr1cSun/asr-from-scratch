@@ -7,3 +7,5 @@ accelerate
 soundfile
 pyyaml
 tensorboard
+librosa
+sentencepiece
