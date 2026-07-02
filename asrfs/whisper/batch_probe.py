@@ -1,16 +1,19 @@
 import argparse
 import time
+from pathlib import Path
 
 import torch
+import yaml
 
 from asrfs.common.data import fetch_smoke_subset
 from asrfs.whisper.dataset import WhisperCollator, prepare_example
 from asrfs.whisper.model import build_model, build_processor
 
-def probe(size: str, grad_checkpoint: bool) -> None:
+
+def probe(cfg: dict, grad_checkpoint: bool) -> None:
     device = torch.device("cuda")
-    processor = build_processor(size)
-    model = build_model(size).to(device)
+    processor = build_processor(cfg)
+    model = build_model(cfg).to(device)
     if grad_checkpoint:
         model.gradient_checkpointing_enable()
         model.config.use_cache = False
@@ -37,9 +40,15 @@ def probe(size: str, grad_checkpoint: bool) -> None:
             print(f"bs={bs:3d}  OOM")
             break
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--size", type=str, default="medium", choices=["small", "medium"])
+    parser.add_argument("--config", type=str, default=str(Path(__file__).with_name("config.yaml")))
+    parser.add_argument("--size", type=str, default=None, choices=["small", "medium"],
+                        help="override model.size")
     parser.add_argument("--grad-checkpoint", action="store_true")
     args = parser.parse_args()
-    probe(args.size, args.grad_checkpoint)
+    cfg = yaml.safe_load(Path(args.config).read_text())
+    if args.size is not None:
+        cfg["model"]["size"] = args.size
+    probe(cfg, args.grad_checkpoint)

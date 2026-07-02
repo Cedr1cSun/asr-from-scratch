@@ -1,4 +1,7 @@
+import pytest
+
 from asrfs.whisper.model import SIZE_PRESETS, build_model, init_report
+
 
 def test_presets_have_expected_dims():
     assert SIZE_PRESETS["small"]["d_model"] == 768
@@ -6,8 +9,11 @@ def test_presets_have_expected_dims():
     assert SIZE_PRESETS["medium"]["d_model"] == 1024
     assert SIZE_PRESETS["medium"]["encoder_layers"] == 24
 
+
+@pytest.mark.slow
 def test_medium_random_init():
-    model = build_model("medium")
+    cfg = {"model": {"size": "medium", "apply_spec_augment": False, "generation_max_length": 225}}
+    model = build_model(cfg)
     report = init_report(model)
     assert 750e6 < report["params_total"] < 790e6
     assert report["frozen"] == {"model.encoder.embed_positions.weight"}

@@ -9,9 +9,10 @@ from asrfs.common.metrics import wer
 from asrfs.whisper.dataset import WhisperCollator, prepare_example
 from asrfs.whisper.model import build_model, build_processor
 
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default="asrfs/whisper/config.yaml")
+    parser.add_argument("--config", type=str, default=str(Path(__file__).with_name("config.yaml")))
     parser.add_argument("--max-steps", type=int, default=None, help="override config, for dry runs")
     parser.add_argument("--lr", type=float, default=None, help="override config peak learning rate")
     parser.add_argument("--run-name", type=str, default=None, help="override config run_name")
@@ -22,8 +23,8 @@ def main() -> None:
     if args.run_name is not None:
         cfg["run_name"] = args.run_name
 
-    processor = build_processor(cfg["model_size"])
-    model = build_model(cfg["model_size"], apply_spec_augment=cfg["apply_spec_augment"])
+    processor = build_processor(cfg)
+    model = build_model(cfg)
 
     n_train, n_eval = cfg["data"]["n_train"], cfg["data"]["n_eval"]
     raw = fetch_smoke_subset(n=n_train + n_eval)
@@ -41,7 +42,7 @@ def main() -> None:
         refs = processor.tokenizer.batch_decode(label_ids, skip_special_tokens=True)
         return {"wer": wer(refs, hyps)}
 
-    t = cfg["training"]
+    t, m = cfg["training"], cfg["model"]
     training_args = Seq2SeqTrainingArguments(
         output_dir=f"outputs/{cfg['run_name']}",
         learning_rate=float(t["learning_rate"]),
@@ -49,13 +50,14 @@ def main() -> None:
         max_steps=args.max_steps or t["max_steps"],
         per_device_train_batch_size=t["per_device_train_batch_size"],
         gradient_accumulation_steps=t["gradient_accumulation_steps"],
-        gradient_checkpointing=t["gradient_checkpointing"],
+        gradient_checkpointing=m["gradient_checkpointing"],
         logging_steps=t["logging_steps"],
         eval_strategy="steps",
         eval_steps=t["eval_steps"],
         predict_with_generate=True,
-        generation_max_length=t["generation_max_length"],
+        generation_max_length=m["generation_max_length"],
         save_strategy="no",
+        seed=t["seed"],
         report_to=["tensorboard"],
         remove_unused_columns=False,
     )
@@ -74,6 +76,7 @@ def main() -> None:
     model.save_pretrained(out)
     processor.save_pretrained(out)
     print(f"saved to {out}")
+
 
 if __name__ == "__main__":
     main()

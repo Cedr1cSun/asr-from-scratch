@@ -1,10 +1,18 @@
+from pathlib import Path
+
 import torch
+import yaml
 from transformers import (
     GenerationConfig,
     WhisperConfig,
     WhisperForConditionalGeneration,
     WhisperProcessor,
 )
+
+# ── 适配契约常量(冻结)──────────────────────────────────────────────
+LOSS_FAMILY = "ce"
+LABEL_PAD_ID = -100
+EXPECTED_FROZEN = {"model.encoder.embed_positions.weight"}
 
 _COMMON = dict(
     vocab_size=51864,
@@ -45,19 +53,24 @@ SIZE_PRESETS = {
     ),
 }
 
+
 def tokenizer_source(size: str) -> str:
     return f"openai/whisper-{size}.en"
 
-def build_processor(size: str = "medium") -> WhisperProcessor:
-    return WhisperProcessor.from_pretrained(tokenizer_source(size))
 
-def build_model(size: str = "medium", apply_spec_augment: bool = False) -> WhisperForConditionalGeneration:
-    config = WhisperConfig(**SIZE_PRESETS[size], apply_spec_augment=apply_spec_augment)
+def build_processor(cfg: dict) -> WhisperProcessor:
+    """适配契约 build_processor:统一收 cfg。"""
+    return WhisperProcessor.from_pretrained(tokenizer_source(cfg["model"]["size"]))
+
+
+def build_model(cfg: dict) -> WhisperForConditionalGeneration:
+    """适配契约 build_model:全参数随机初始化;仅 generation_config 等非权重配置从 Hub 拉。"""
+    m = cfg["model"]
+    config = WhisperConfig(**SIZE_PRESETS[m["size"]], apply_spec_augment=m["apply_spec_augment"])
     model = WhisperForConditionalGeneration(config)
-    model.generation_config = GenerationConfig.from_pretrained(tokenizer_source(size))
+    model.generation_config = GenerationConfig.from_pretrained(tokenizer_source(m["size"]))
     return model
 
-EXPECTED_FROZEN = {"model.encoder.embed_positions.weight"}
 
 def init_report(model: torch.nn.Module) -> dict:
     n_params = sum(p.numel() for p in model.parameters())
@@ -73,8 +86,10 @@ def init_report(model: torch.nn.Module) -> dict:
         "dec_l0_q_std": dec_attn.std().item(),
     }
 
+
 if __name__ == "__main__":
-    model = build_model()
+    cfg = yaml.safe_load((Path(__file__).with_name("config.yaml")).read_text())
+    model = build_model(cfg)
     report = init_report(model)
     for k, v in report.items():
         print(f"{k}: {v}")

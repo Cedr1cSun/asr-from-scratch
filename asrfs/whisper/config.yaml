@@ -1,10 +1,10 @@
-model_size: medium
-apply_spec_augment: false
 run_name: mini100_medium_fp32
 
-data:
-  n_train: 100
-  n_eval: 20
+model:
+  size: medium
+  apply_spec_augment: false
+  gradient_checkpointing: true
+  generation_max_length: 225
 
 training:
   learning_rate: 1.0e-4
@@ -12,7 +12,16 @@ training:
   max_steps: 300
   per_device_train_batch_size: 2
   gradient_accumulation_steps: 4
-  gradient_checkpointing: true
   logging_steps: 10
   eval_steps: 100
-  generation_max_length: 225
+  seed: 42
+
+data:
+  n_train: 100
+  n_eval: 20
+
+smoke:
+  overfit1_steps: 300
+  overfit1_lr: 3.0e-4
+  mini100_steps: 250   # 20 epoch 等效:20 * 100 / (2 * 4)
+  mini100_lr: 1.0e-4

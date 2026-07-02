@@ -1,26 +1,37 @@
 import argparse
 import time
+from pathlib import Path
 
 import torch
+import yaml
 
 from asrfs.common.data import fetch_smoke_subset
 from asrfs.common.metrics import normalize_tokens
 from asrfs.whisper.dataset import WhisperCollator, prepare_example
 from asrfs.whisper.model import build_model, build_processor, init_report
 
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--steps", type=int, default=300)
-    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--config", type=str, default=str(Path(__file__).with_name("config.yaml")))
+    parser.add_argument("--steps", type=int, default=None, help="override smoke.overfit1_steps")
+    parser.add_argument("--lr", type=float, default=None, help="override smoke.overfit1_lr")
     parser.add_argument("--sample-index", type=int, default=0)
-    parser.add_argument("--size", type=str, default="medium", choices=["small", "medium"])
+    parser.add_argument("--size", type=str, default=None, choices=["small", "medium"],
+                        help="override model.size")
     args = parser.parse_args()
+
+    cfg = yaml.safe_load(Path(args.config).read_text())
+    if args.size is not None:
+        cfg["model"]["size"] = args.size
+    steps = args.steps if args.steps is not None else cfg["smoke"]["overfit1_steps"]
+    lr = args.lr if args.lr is not None else float(cfg["smoke"]["overfit1_lr"])
 
     device = torch.device("cuda")
     torch.manual_seed(0)
 
-    processor = build_processor(args.size)
-    model = build_model(args.size).to(device)
+    processor = build_processor(cfg)
+    model = build_model(cfg).to(device)
     report = init_report(model)
     print(f"params: {report['params_total'] / 1e6:.1f}M, frozen: {report['frozen'] or 'none'}")
 
@@ -34,11 +45,11 @@ def main() -> None:
     batch = {k: v.to(device) for k, v in collator([example]).items()}
     print(f"input_features {tuple(batch['input_features'].shape)}, labels {tuple(batch['labels'].shape)}")
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
     model.train()
     start = time.time()
     final_loss = None
-    for step in range(1, args.steps + 1):
+    for step in range(1, steps + 1):
         loss = model(**batch).loss
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -62,6 +73,7 @@ def main() -> None:
     print(f"elapsed {time.time() - start:.0f}s, peak VRAM {peak_gb:.1f}G")
     print(f"loss<0.1: {final_loss < 0.1}  decode match: {match}")
     print("SMOKE ROUND 1: " + ("PASS" if final_loss < 0.1 and match else "FAIL"))
+
 
 if __name__ == "__main__":
     main()
