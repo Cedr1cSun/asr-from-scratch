@@ -19,8 +19,14 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="whisper/config.yaml")
     parser.add_argument("--max-steps", type=int, default=None, help="override config, for dry runs")
+    parser.add_argument("--lr", type=float, default=None, help="override config peak learning rate")
+    parser.add_argument("--run-name", type=str, default=None, help="override config run_name")
     args = parser.parse_args()
     cfg = yaml.safe_load(Path(args.config).read_text())
+    if args.lr is not None:
+        cfg["training"]["learning_rate"] = args.lr
+    if args.run_name is not None:
+        cfg["run_name"] = args.run_name
 
     processor = build_processor(cfg["model_size"])
     model = build_model(cfg["model_size"], apply_spec_augment=cfg["apply_spec_augment"])
