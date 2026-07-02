@@ -3,7 +3,7 @@ import sys
 import torch
 from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
-from common.data import fetch_smoke_subset
+from asrfs.common.data import fetch_smoke_subset
 
 def main(ckpt_dir: str) -> None:
     device = torch.device("cuda")

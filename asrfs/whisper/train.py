@@ -4,14 +4,14 @@ from pathlib import Path
 import yaml
 from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments
 
-from common.data import fetch_smoke_subset
-from common.metrics import wer
-from whisper.dataset import WhisperCollator, prepare_example
-from whisper.model import build_model, build_processor
+from asrfs.common.data import fetch_smoke_subset
+from asrfs.common.metrics import wer
+from asrfs.whisper.dataset import WhisperCollator, prepare_example
+from asrfs.whisper.model import build_model, build_processor
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default="whisper/config.yaml")
+    parser.add_argument("--config", type=str, default="asrfs/whisper/config.yaml")
     parser.add_argument("--max-steps", type=int, default=None, help="override config, for dry runs")
     parser.add_argument("--lr", type=float, default=None, help="override config peak learning rate")
     parser.add_argument("--run-name", type=str, default=None, help="override config run_name")

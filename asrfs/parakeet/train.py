@@ -5,14 +5,14 @@ import torch
 import yaml
 from transformers import Trainer, TrainingArguments
 
-from common.data import fetch_smoke_subset
-from common.metrics import wer
-from parakeet.dataset import ParakeetCollator, ctc_greedy_decode, prepare_example
-from parakeet.model import build_feature_extractor, build_model, build_tokenizer
+from asrfs.common.data import fetch_smoke_subset
+from asrfs.common.metrics import wer
+from asrfs.parakeet.dataset import ParakeetCollator, ctc_greedy_decode, prepare_example
+from asrfs.parakeet.model import build_feature_extractor, build_model, build_tokenizer
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default="parakeet/config.yaml")
+    parser.add_argument("--config", type=str, default="asrfs/parakeet/config.yaml")
     parser.add_argument("--max-steps", type=int, default=None)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--run-name", type=str, default=None)

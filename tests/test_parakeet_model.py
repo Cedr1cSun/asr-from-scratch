@@ -1,4 +1,4 @@
-from parakeet.model import build_model, build_tokenizer, init_report
+from asrfs.parakeet.model import build_model, build_tokenizer, init_report
 
 def test_small_random_init():
     model = build_model()

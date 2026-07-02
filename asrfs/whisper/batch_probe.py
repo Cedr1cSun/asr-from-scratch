@@ -3,9 +3,9 @@ import time
 
 import torch
 
-from common.data import fetch_smoke_subset
-from whisper.dataset import WhisperCollator, prepare_example
-from whisper.model import build_model, build_processor
+from asrfs.common.data import fetch_smoke_subset
+from asrfs.whisper.dataset import WhisperCollator, prepare_example
+from asrfs.whisper.model import build_model, build_processor
 
 def probe(size: str, grad_checkpoint: bool) -> None:
     device = torch.device("cuda")

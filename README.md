@@ -8,21 +8,23 @@
 
 ```
 asr-from-scratch/
-├── common/                  # 四模型共用
-│   ├── data.py              # LibriSpeech 流式抓取 + 本地缓存
-│   └── metrics.py           # WER,文本归一化与 SURE-EVAL 的 wenet_compute_cer.py 逐位一致
-├── whisper/                 # Whisper enc-dec + CE(Seq2SeqTrainer)
-│   ├── model.py             # small/medium 尺寸预设,默认 medium(~764M)
-│   ├── dataset.py           # collator:特征 pad 3000 帧,labels pad -100
-│   ├── train.py             # python -m whisper.train [--lr --max-steps --run-name]
-│   ├── smoke.py             # 冒烟轮 1:单条 overfit
-│   ├── batch_probe.py       # 冒烟轮 3:batch 上限/步时探测
-│   ├── reload_check.py      # save_pretrained 产物回载推理验证
-│   └── config.yaml
-├── parakeet/                # FastConformer + CTC(Trainer)
-│   ├── model.py             # d=256 × 16 层,~26M
-│   ├── dataset.py           # collator:变长 pad + attention_mask;labels pad 到 blank(1024)
-│   ├── train.py / smoke.py / reload_check.py / config.yaml
+├── pyproject.toml           # setuptools;顶层包 asrfs,editable install 供 asr-harness 消费
+├── asrfs/
+│   ├── common/              # 四模型共用
+│   │   ├── data.py          # LibriSpeech 流式抓取 + 本地缓存
+│   │   └── metrics.py       # WER,文本归一化与 SURE-EVAL 的 wenet_compute_cer.py 逐位一致
+│   ├── whisper/             # Whisper enc-dec + CE(Seq2SeqTrainer)
+│   │   ├── model.py         # small/medium 尺寸预设,默认 medium(~764M)
+│   │   ├── dataset.py       # collator:特征 pad 3000 帧,labels pad -100
+│   │   ├── train.py         # python -m asrfs.whisper.train [--lr --max-steps --run-name]
+│   │   ├── smoke.py         # 冒烟轮 1:单条 overfit
+│   │   ├── batch_probe.py   # 冒烟轮 3:batch 上限/步时探测
+│   │   ├── reload_check.py  # save_pretrained 产物回载推理验证
+│   │   └── config.yaml
+│   └── parakeet/            # FastConformer + CTC(Trainer)
+│       ├── model.py         # d=256 × 16 层,~26M
+│       ├── dataset.py       # collator:变长 pad + attention_mask;labels pad 到 blank(1024)
+│       ├── train.py / smoke.py / reload_check.py / config.yaml
 └── tests/                   # pytest,含与平台 WER 脚本的交叉验证
 ```
 
@@ -31,6 +33,7 @@ asr-from-scratch/
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -e .    # asrfs 以 editable 方式安装,供 asr-harness 同 venv import
 ```
 
 实测环境:python 3.12,torch 2.12.1+cu130,transformers 5.12.1,datasets 5.0,RTX 2080 Ti 22GB(WSL2)。
@@ -41,16 +44,16 @@ python3 -m venv .venv
 
 ```bash
 # 冒烟轮 1:单条样本 FP32 overfit,loss→0 且贪心解码复现转写即 PASS(首跑自动下载 8 条样本缓存)
-.venv/bin/python -m whisper.smoke          # ~1 分钟(--size small 更快)
-.venv/bin/python -m parakeet.smoke         # ~10 秒
+.venv/bin/python -m asrfs.whisper.smoke          # ~1 分钟(--size small 更快)
+.venv/bin/python -m asrfs.parakeet.smoke         # ~10 秒
 
 # 冒烟轮 2:mini100(100 条训练 + 20 条 eval,300 步)
-.venv/bin/python -m whisper.train          # ~28 分钟
-.venv/bin/python -m parakeet.train         # ~1 分钟
+.venv/bin/python -m asrfs.whisper.train          # ~28 分钟
+.venv/bin/python -m asrfs.parakeet.train         # ~1 分钟
 
 # 产物回载验证(镜像 SURE-EVAL ModelWrapper 的用法)
-.venv/bin/python -m whisper.reload_check outputs/mini100_medium_fp32/final
-.venv/bin/python -m parakeet.reload_check outputs/parakeet_mini100_fp32/final
+.venv/bin/python -m asrfs.whisper.reload_check outputs/mini100_medium_fp32/final
+.venv/bin/python -m asrfs.parakeet.reload_check outputs/parakeet_mini100_fp32/final
 
 # 测试
 .venv/bin/python -m pytest tests/ -q

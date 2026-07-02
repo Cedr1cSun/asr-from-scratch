@@ -4,8 +4,8 @@ import numpy as np
 import torch
 from transformers import ParakeetFeatureExtractor, ParakeetForCTC, ParakeetTokenizerFast
 
-from common.data import fetch_smoke_subset
-from parakeet.dataset import ctc_greedy_decode
+from asrfs.common.data import fetch_smoke_subset
+from asrfs.parakeet.dataset import ctc_greedy_decode
 
 def main(ckpt_dir: str) -> None:
     device = torch.device("cuda")

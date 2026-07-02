@@ -1,4 +1,4 @@
-from whisper.model import SIZE_PRESETS, build_model, init_report
+from asrfs.whisper.model import SIZE_PRESETS, build_model, init_report
 
 def test_presets_have_expected_dims():
     assert SIZE_PRESETS["small"]["d_model"] == 768

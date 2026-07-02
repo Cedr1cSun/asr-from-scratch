@@ -1,8 +1,8 @@
 import numpy as np
 import torch
 
-from parakeet.dataset import ParakeetCollator, ctc_greedy_decode, prepare_example
-from parakeet.model import build_feature_extractor, build_tokenizer
+from asrfs.parakeet.dataset import ParakeetCollator, ctc_greedy_decode, prepare_example
+from asrfs.parakeet.model import build_feature_extractor, build_tokenizer
 
 def _fake_sample(seconds: float, text: str) -> dict:
     return {

@@ -5,7 +5,7 @@ import numpy as np
 import soundfile as sf
 from datasets import Audio, Dataset, load_dataset, load_from_disk
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 
 LIBRISPEECH_REPO = "openslr/librispeech_asr"

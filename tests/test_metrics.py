@@ -2,7 +2,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from common.metrics import normalize_tokens, wer
+from asrfs.common.metrics import normalize_tokens, wer
 
 SURE_ASR = "/home/cedric/WorkSpace-Exp/sure/src/sure_eval/evaluation/asr"
 
