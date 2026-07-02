@@ -114,12 +114,82 @@ def test_params_hash_covers_feature_params_only():
     assert full_data.params_hash(filter_changed) != base
 
 
+CFG_WITH_MODEL_SECTION = {
+    "run_name": "full_data_unit_model_section",
+    "model": {
+        "size": "medium",
+        "gradient_checkpointing": True,
+        "generation_max_length": 225,
+        "apply_spec_augment": False,
+    },
+    "training": {"learning_rate": 1.0e-4},
+    "data": {"max_label_len": 448, "max_audio_seconds": 30.0},
+}
+
+
+def test_params_hash_excludes_non_feature_model_keys():
+    """model.gradient_checkpointing / generation_max_length / apply_spec_augment 是训练/解码期
+    旋钮(见 asrfs/whisper/config.yaml),不改变任何一个特征字节,不应参与 hash;
+    model.size 与 data.max_label_len 才是真正影响特征的 key,必须参与 hash。
+    """
+    base = full_data.params_hash(CFG_WITH_MODEL_SECTION)
+
+    gc_changed = copy.deepcopy(CFG_WITH_MODEL_SECTION)
+    gc_changed["model"]["gradient_checkpointing"] = False
+    assert full_data.params_hash(gc_changed) == base
+
+    genlen_changed = copy.deepcopy(CFG_WITH_MODEL_SECTION)
+    genlen_changed["model"]["generation_max_length"] = 448
+    assert full_data.params_hash(genlen_changed) == base
+
+    spec_changed = copy.deepcopy(CFG_WITH_MODEL_SECTION)
+    spec_changed["model"]["apply_spec_augment"] = True
+    assert full_data.params_hash(spec_changed) == base
+
+    size_changed = copy.deepcopy(CFG_WITH_MODEL_SECTION)
+    size_changed["model"]["size"] = "large"
+    assert full_data.params_hash(size_changed) != base
+
+    label_len_changed = copy.deepcopy(CFG_WITH_MODEL_SECTION)
+    label_len_changed["data"]["max_label_len"] = 5
+    assert full_data.params_hash(label_len_changed) != base
+
+
 def test_load_full_dataset_roundtrip(data_root):
     full_data.prepare_full_dataset(CFG, FakeAdapter)
     train, eval_ds = full_data.load_full_dataset(CFG, model_name="faketest")
     assert len(train) == 3  # 三个 train split 各存活 1 条,concatenate 后 3 条
     assert len(eval_ds) == 1
     assert set(train.column_names) >= {"input_features", "labels", "length"}
+
+
+def test_prepare_full_dataset_removes_stale_manifest_on_crash(monkeypatch, data_root):
+    """re-run 若中途崩溃(比如换了 cfg 后第二个 split 失败),旧 manifest 必须已经不在了,
+    否则 load_full_dataset(旧 cfg) 会悄悄拼出一份新旧 split 混杂的 train set。
+    """
+    full_data.prepare_full_dataset(CFG, FakeAdapter)
+    manifest_path = data_root / "full" / "faketest" / "manifest.json"
+    assert manifest_path.is_file()
+
+    other_cfg = copy.deepcopy(CFG)
+    other_cfg["model_size"] = "not-fake"  # 不同 params_hash
+
+    calls = {"n": 0}
+
+    def _crash_on_second_split(config, split, subset_head=None):
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise RuntimeError("boom: simulated crash mid re-run")
+        yield from _fake_rows(f"{config}.{split}")
+
+    monkeypatch.setattr(full_data, "_stream_split", _crash_on_second_split)
+
+    with pytest.raises(Exception):
+        full_data.prepare_full_dataset(other_cfg, FakeAdapter)
+
+    assert not manifest_path.exists()
+    with pytest.raises(FileNotFoundError):
+        full_data.load_full_dataset(CFG, model_name="faketest")
 
 
 def test_load_full_dataset_guards(data_root):

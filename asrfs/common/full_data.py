@@ -43,6 +43,9 @@ EVAL_SPLIT_NAME = EVAL_SPLIT[2]
 FEATURE_DTYPE = "float16"
 DEFAULT_MAX_AUDIO_SECONDS = 30.0
 _NON_FEATURE_CFG_KEYS = ("data", "training", "smoke", "run_name")
+# model: 段里这几个 key 是训练/解码期旋钮(见 asrfs/whisper/config.yaml),不改变任何一个
+# 预计算出的特征字节;混进 hash 会导致集群上翻一次 gradient_checkpointing 就得重算 60 GB 特征。
+_NON_FEATURE_MODEL_KEYS = {"gradient_checkpointing", "generation_max_length", "apply_spec_augment"}
 
 
 def model_name_of(adapter) -> str:
@@ -62,11 +65,17 @@ def params_hash(cfg: dict) -> str:
     """sha256(排序后的特征相关 cfg 子集):model 段 + 过滤参数 + 数据 revision + dtype。
 
     training/smoke/run_name 与 data.n_train/n_eval 不影响预计算特征,排除在外,
-    避免调训练超参就把 60 GB 特征判失效。
+    避免调训练超参就把 60 GB 特征判失效;model.gradient_checkpointing/
+    generation_max_length/apply_spec_augment 同理(见 _NON_FEATURE_MODEL_KEYS)。
     """
     data_cfg = cfg.get("data") or {}
+    model_section = {k: v for k, v in cfg.items() if k not in _NON_FEATURE_CFG_KEYS}
+    if isinstance(model_section.get("model"), dict):
+        model_section["model"] = {
+            k: v for k, v in model_section["model"].items() if k not in _NON_FEATURE_MODEL_KEYS
+        }
     subset = {
-        "model": {k: v for k, v in cfg.items() if k not in _NON_FEATURE_CFG_KEYS},
+        "model": model_section,
         "max_label_len": data_cfg.get("max_label_len"),
         "max_audio_seconds": float(data_cfg.get("max_audio_seconds", DEFAULT_MAX_AUDIO_SECONDS)),
         "librispeech_revision": LIBRISPEECH_REVISION,
@@ -122,6 +131,12 @@ def prepare_full_dataset(cfg: dict, processor_adapter, subset_head: int | None =
     processor = adapter.build_processor(cfg)
     out_root = full_dir(model_name_of(adapter))
     out_root.mkdir(parents=True, exist_ok=True)
+
+    # 不变量:manifest.json 存在 ⇒ 磁盘上所有 split 均已重写完成且与其 hash 一致。
+    # 先删旧 manifest 再跑 split,这样中途崩溃的重跑不会留下一份指向新旧混杂特征的旧
+    # manifest;manifest 仍然只在全部 split 成功后于末尾写入(见下方),中断的重跑会
+    # 在 load_full_dataset 里经既有 FileNotFoundError 兜底报错。
+    (out_root / "manifest.json").unlink(missing_ok=True)
 
     manifest_splits = {}
     for config, split, split_name in ALL_SPLITS:
