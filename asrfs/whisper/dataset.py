@@ -68,8 +68,7 @@ def build_dataset(cfg: dict, processor, mode: str) -> tuple:
         eval_ds = prepared.select(range(n_train, n_train + n_eval))
         return train_ds, eval_ds
     if mode == "full":
-        raise NotImplementedError(
-            "mode='full' 依赖 960h 数据管线(asrfs.common 的 prepare_full_dataset/"
-            "load_full_dataset),随 Task A9 落地;当前请用 'overfit1' 或 'mini100'。"
-        )
+        from asrfs.common.full_data import load_full_dataset
+
+        return load_full_dataset(cfg, model_name="whisper")
     raise ValueError(f"unknown mode {mode!r}; expected one of 'overfit1', 'mini100', 'full'")

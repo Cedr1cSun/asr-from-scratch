@@ -98,9 +98,16 @@ def test_build_model_cfg_overrides():
     assert default.config.encoder_config.num_hidden_layers == 16
 
 
-def test_build_dataset_full_not_implemented():
-    with pytest.raises(NotImplementedError):
-        build_dataset({}, None, mode="full")
+def test_build_dataset_full_missing_manifest_raises(monkeypatch, tmp_path):
+    """full 分支已委托 load_full_dataset:manifest 缺失 => FileNotFoundError(取代旧 NotImplementedError 断言)。"""
+    import yaml
+
+    import asrfs.parakeet as pkg
+
+    cfg = yaml.safe_load(open("asrfs/parakeet/config.yaml"))
+    monkeypatch.setenv("ASRFS_DATA_DIR", str(tmp_path))
+    with pytest.raises(FileNotFoundError):
+        pkg.build_dataset(cfg, None, mode="full")
 
 
 def test_build_dataset_bad_mode():

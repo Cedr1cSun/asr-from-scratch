@@ -59,6 +59,25 @@ python3 -m venv .venv
 .venv/bin/python -m pytest tests/ -q
 ```
 
+## 全量数据预计算(960h,full mode)
+
+特征离线预计算归 `asrfs.common.full_data`(spec §3.3),由人工/agent 显式触发,不挂 harness 管线 stage:
+
+```bash
+# 集群侧:960h 全量(数小时到天级;每模型特征 ~55-60 GB + HF 下载缓存 ~60 GB)
+ASRFS_DATA_DIR=/data/asrfs .venv/bin/python -m asrfs.common.full_data \
+  --config asrfs/whisper/config.yaml --adapter asrfs.whisper
+
+# 本机(2080 Ti):每 split 只取前 N 条做管线验证
+.venv/bin/python -m asrfs.common.full_data \
+  --config asrfs/whisper/config.yaml --adapter asrfs.whisper --subset-head 4
+```
+
+- train = clean.100 + clean.360 + other.500;eval = validation.clean;test-clean/test-other 留给 SURE-EVAL,不进训练管线
+- 特征 float16,按模型分目录:`$ASRFS_DATA_DIR/full/{model}/`,含 `manifest.json`(各 split 过滤前/后行数、dtype、params_hash、subset_head)
+- 过滤:音频 > `data.max_audio_seconds`(30s);label 长度 > `data.max_label_len`(whisper 448;parakeet 不设)
+- 训练侧经 `build_dataset(cfg, processor, mode="full")` 加载;manifest 的 params_hash 与当前 config 失配时拒绝加载,需重跑预计算
+
 ## 合规口径
 
 - 模型权重全部随机初始化,任何路径都不 `from_pretrained` 权重

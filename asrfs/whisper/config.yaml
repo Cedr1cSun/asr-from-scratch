@@ -19,6 +19,8 @@ training:
 data:
   n_train: 100
   n_eval: 20
+  max_label_len: 448      # full mode 过滤:whisper decoder max_target_positions
+  max_audio_seconds: 30.0 # full mode 过滤:whisper 30s 感受野
 
 smoke:
   overfit1_steps: 300

@@ -67,9 +67,9 @@ def _to_row(sample: dict, fe, tok) -> dict:
 
 def build_dataset(cfg: dict, processor, mode: str) -> tuple:
     if mode == "full":
-        raise NotImplementedError(
-            "mode='full' depends on asrfs.common.prepare_full_dataset (Task A9)"
-        )
+        from asrfs.common.full_data import load_full_dataset
+
+        return load_full_dataset(cfg, model_name="parakeet")
     if mode not in ("overfit1", "mini100"):
         raise ValueError(f"unknown mode: {mode!r}")
     fe, tok = processor.feature_extractor, processor.tokenizer

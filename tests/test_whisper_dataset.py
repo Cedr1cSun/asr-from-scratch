@@ -112,9 +112,16 @@ def test_prepare_length_is_raw_audio_sample_count(processor):
     assert prepared[0]["length"] != prepared[1]["length"]
 
 
-def test_build_dataset_full_not_implemented(processor):
-    with pytest.raises(NotImplementedError, match="A9"):
-        build_dataset(_cfg(), processor, mode="full")
+def test_build_dataset_full_missing_manifest_raises(monkeypatch, tmp_path):
+    """full 分支已委托 load_full_dataset:manifest 缺失 => FileNotFoundError(取代旧 NotImplementedError 断言)。"""
+    import yaml
+
+    import asrfs.whisper as pkg
+
+    cfg = yaml.safe_load(open("asrfs/whisper/config.yaml"))
+    monkeypatch.setenv("ASRFS_DATA_DIR", str(tmp_path))
+    with pytest.raises(FileNotFoundError):
+        pkg.build_dataset(cfg, None, mode="full")
 
 
 def test_build_dataset_unknown_mode(processor):
