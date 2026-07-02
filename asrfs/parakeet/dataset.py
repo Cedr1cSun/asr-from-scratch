@@ -99,3 +99,24 @@ def ctc_greedy_decode(
         kept = collapsed[collapsed != blank_id].tolist()
         texts.append(tokenizer.decode(kept, skip_special_tokens=True))
     return texts
+
+
+def decode(model, processor, batch) -> list[str]:
+    """契约解码入口:forward → argmax → CTC 折叠 → detokenize。
+
+    batch = collator 产物(已在模型设备),可能含 labels 等训练键,一律忽略。
+    """
+    device = next(model.parameters()).device
+    inputs = {"input_features": batch["input_features"].to(device)}
+    if "attention_mask" in batch:
+        inputs["attention_mask"] = batch["attention_mask"].to(device)
+    was_training = model.training
+    model.eval()
+    try:
+        with torch.no_grad():
+            logits = model(**inputs).logits
+    finally:
+        if was_training:
+            model.train()
+    blank = processor.tokenizer.vocab_size
+    return ctc_greedy_decode(logits.argmax(-1), processor.tokenizer, blank_id=blank)

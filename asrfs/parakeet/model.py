@@ -65,6 +65,21 @@ def build_model(cfg: dict) -> ParakeetForCTC:
     return ParakeetForCTC(config)
 
 
+def save_checkpoint(model, processor, out_dir: str) -> None:
+    model.save_pretrained(out_dir)
+    processor.feature_extractor.save_pretrained(out_dir)
+    processor.tokenizer.save_pretrained(out_dir)
+
+
+def load_checkpoint(cfg: dict, ckpt_dir: str) -> tuple:
+    model = ParakeetForCTC.from_pretrained(ckpt_dir)
+    processor = ParakeetProcessorBundle(
+        tokenizer=ParakeetTokenizerFast.from_pretrained(ckpt_dir),
+        feature_extractor=ParakeetFeatureExtractor.from_pretrained(ckpt_dir),
+    )
+    return model, processor
+
+
 def init_report(model: torch.nn.Module) -> dict:
     n_params = sum(p.numel() for p in model.parameters())
     n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)

@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import torch
 import yaml
 
 import asrfs.parakeet.dataset as pds
@@ -15,7 +16,11 @@ from asrfs.parakeet import (
     build_dataset,
     build_model,
     build_processor,
+    build_trainer,
+    decode,
+    load_checkpoint,
     make_example,
+    save_checkpoint,
 )
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "asrfs" / "parakeet" / "config.yaml"
@@ -165,3 +170,88 @@ def test_prepare_length_is_raw_audio_sample_count(processor_bundle):
     assert row_short["length"] == 1600
     assert row_long["length"] == 16000
     assert row_short["length"] != row_long["length"]
+
+
+TRAIN_CFG = {
+    "run_name": "unittest",
+    "data": {"n_train": 100, "n_eval": 20},
+    "training": {
+        "learning_rate": 3.0e-4,
+        "warmup_steps": 0,
+        "max_steps": 10,
+        "per_device_train_batch_size": 2,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 5,
+        "eval_steps": 5,
+        "seed": 42,
+    },
+    **TINY_MODEL_CFG,
+}
+
+
+@pytest.fixture(scope="module")
+def tiny_model():
+    return build_model(TINY_MODEL_CFG)
+
+
+def test_ctc_greedy_decode_still_importable():
+    from asrfs.parakeet import ctc_greedy_decode as a
+    from asrfs.parakeet.dataset import ctc_greedy_decode as b
+
+    assert a is b
+
+
+@pytest.mark.slow
+def test_decode_tolerates_labels(processor_bundle, tiny_model):
+    ex = make_example(processor_bundle, np.zeros(16000 * 2, dtype=np.float32), 16000, "HELLO WORLD")
+    batch = build_collator({}, processor_bundle, tiny_model)([ex, ex])
+    assert "labels" in batch  # 训练键在场,decode 必须自行忽略
+    out = decode(tiny_model, processor_bundle, batch)
+    assert isinstance(out, list) and len(out) == 2
+    assert all(isinstance(t, str) for t in out)
+
+
+@pytest.mark.slow
+def test_checkpoint_roundtrip(tmp_path, processor_bundle, tiny_model):
+    save_checkpoint(tiny_model, processor_bundle, str(tmp_path))
+    model2, processor2 = load_checkpoint({}, str(tmp_path))
+    sd1, sd2 = tiny_model.state_dict(), model2.state_dict()
+    assert sd1.keys() == sd2.keys()
+    for k in sd1:
+        assert torch.allclose(sd1[k], sd2[k], atol=1e-6), k
+    assert processor2.tokenizer.vocab_size == processor_bundle.tokenizer.vocab_size
+
+
+@pytest.mark.slow
+def test_build_trainer_overrides_merge(tmp_path, processor_bundle, tiny_model):
+    ex = make_example(processor_bundle, np.zeros(16000, dtype=np.float32), 16000, "HELLO")
+    collator = build_collator(TRAIN_CFG, processor_bundle, tiny_model)
+    overrides = {
+        "max_steps": 5,
+        "learning_rate": 1e-3,
+        "output_dir": str(tmp_path),
+        "report_to": [],
+        "use_cpu": True,
+    }
+    trainer = build_trainer(
+        TRAIN_CFG, tiny_model, processor_bundle, [ex, ex], None, collator, overrides
+    )
+    assert trainer.args.max_steps == 5  # overrides 覆盖 cfg 的 10
+    assert trainer.args.learning_rate == pytest.approx(1e-3)  # overrides 覆盖 cfg 的 3e-4
+    assert trainer.args.remove_unused_columns is False
+    assert trainer.args.seed == 42
+
+
+@pytest.mark.slow
+def test_build_trainer_unknown_override_raises(tmp_path, processor_bundle, tiny_model):
+    collator = build_collator(TRAIN_CFG, processor_bundle, tiny_model)
+    with pytest.raises(ValueError, match="unknown TrainingArguments"):
+        build_trainer(
+            TRAIN_CFG,
+            tiny_model,
+            processor_bundle,
+            [],
+            None,
+            collator,
+            {"output_dir": str(tmp_path), "not_a_field": 1},
+        )
