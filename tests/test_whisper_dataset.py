@@ -12,11 +12,11 @@ from asrfs.whisper.model import LABEL_PAD_ID, build_processor
 FAKE_TEXTS = ["hello world", "a longer fake sentence", "third sample"]
 
 
-def _fake_sample(i: int, text: str) -> dict:
+def _fake_sample(i: int, text: str, n_samples: int = 16000) -> dict:
     rng = np.random.default_rng(i)
     return {
         "id": f"fake-{i}",
-        "audio_array": (0.01 * rng.standard_normal(16000)).astype(np.float32),
+        "audio_array": (0.01 * rng.standard_normal(n_samples)).astype(np.float32),
         "sampling_rate": 16000,
         "text": text,
     }
@@ -83,7 +83,7 @@ def test_build_dataset_overfit1(processor, monkeypatch):
     assert train_ds[0]["text"] == FAKE_TEXTS[0]
     assert train_ds[99]["id"] == "fake-0"  # 同一条 ×100
     assert isinstance(train_ds[0]["length"], int)
-    assert train_ds[0]["length"] == len(train_ds[0]["input_features"])
+    assert train_ds[0]["length"] == 16000  # length = 原始音频采样点数(1s@16kHz),非 mel-bin 轴长度 80
 
 
 def test_build_dataset_mini100_split(processor, monkeypatch):
@@ -95,7 +95,21 @@ def test_build_dataset_mini100_split(processor, monkeypatch):
     assert set(eval_ds.column_names) == {"input_features", "labels", "id", "text", "length"}
     assert [row["id"] for row in train_ds] == ["fake-0", "fake-1"]
     assert eval_ds[0]["text"] == FAKE_TEXTS[2]
-    assert eval_ds[0]["length"] == len(eval_ds[0]["input_features"])
+    assert eval_ds[0]["length"] == 16000  # length = 原始音频采样点数(1s@16kHz),非 mel-bin 轴长度 80
+
+
+def test_prepare_length_is_raw_audio_sample_count(processor):
+    """length 必须是原始音频采样点数,供 group_by_length 按时长分桶;
+    WhisperFeatureExtractor 恒定输出 (80, 3000),若仍取 len(input_features) 则每行恒为 80,无分桶意义。"""
+    short = _fake_sample(0, "short clip", n_samples=1600)
+    long_ = _fake_sample(1, "a much longer fake clip here", n_samples=16000)
+    raw = Dataset.from_list([short, long_])
+
+    prepared = wds._prepare(raw, processor)
+
+    assert prepared[0]["length"] == 1600
+    assert prepared[1]["length"] == 16000
+    assert prepared[0]["length"] != prepared[1]["length"]
 
 
 def test_build_dataset_full_not_implemented(processor):

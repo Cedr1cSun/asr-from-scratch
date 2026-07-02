@@ -43,10 +43,11 @@ def _prepare(raw: Dataset, processor) -> Dataset:
     def _to_row(s: dict) -> dict:
         ex = make_example(processor, s["audio_array"], s["sampling_rate"], s["text"])
         # 参考列(随行保留):id/text 供 harness run_smoke 写 overfit1 报告,
-        # length 供 Trainer group_by_length;collator 只读已知键,多余列无害。
+        # length: 原始音频采样点数,供 group_by_length 分桶(WhisperFeatureExtractor
+        # 恒定输出 (80, 3000),len(input_features) 恒为 80,无法反映时长,不可用作分桶键)。
         ex["id"] = s["id"]
         ex["text"] = s["text"]
-        ex["length"] = len(ex["input_features"])
+        ex["length"] = len(s["audio_array"])
         return ex
 
     return raw.map(_to_row, remove_columns=raw.column_names)
