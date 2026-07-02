@@ -1,12 +1,3 @@
-"""Smoke round 1: overfit a single utterance in FP32.
-
-Random-init whisper-small must drive loss to ~0 on one sample and greedy-decode
-the exact transcript back. Passing proves model/label/collator wiring; failing
-means a plumbing bug (label shift, padding, masking), not a modeling problem.
-
-Run from project root:  python -m whisper.smoke
-"""
-
 import argparse
 import time
 
@@ -16,7 +7,6 @@ from common.data import fetch_smoke_subset
 from common.metrics import normalize_tokens
 from whisper.dataset import WhisperCollator, prepare_example
 from whisper.model import build_model, build_processor, init_report
-
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -30,7 +20,7 @@ def main() -> None:
     torch.manual_seed(0)
 
     processor = build_processor(args.size)
-    model = build_model(args.size).to(device)  # FP32
+    model = build_model(args.size).to(device)
     report = init_report(model)
     print(f"params: {report['params_total'] / 1e6:.1f}M, frozen: {report['frozen'] or 'none'}")
 
@@ -72,7 +62,6 @@ def main() -> None:
     print(f"elapsed {time.time() - start:.0f}s, peak VRAM {peak_gb:.1f}G")
     print(f"loss<0.1: {final_loss < 0.1}  decode match: {match}")
     print("SMOKE ROUND 1: " + ("PASS" if final_loss < 0.1 and match else "FAIL"))
-
 
 if __name__ == "__main__":
     main()

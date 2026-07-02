@@ -1,8 +1,3 @@
-"""Smoke round 3: probe max FP32 batch size and step time on this GPU.
-
-Run from project root:  python -m whisper.batch_probe [--size medium] [--grad-checkpoint]
-"""
-
 import argparse
 import time
 
@@ -11,7 +6,6 @@ import torch
 from common.data import fetch_smoke_subset
 from whisper.dataset import WhisperCollator, prepare_example
 from whisper.model import build_model, build_processor
-
 
 def probe(size: str, grad_checkpoint: bool) -> None:
     device = torch.device("cuda")
@@ -29,7 +23,7 @@ def probe(size: str, grad_checkpoint: bool) -> None:
         batch = {k: v.to(device) for k, v in collator([example] * bs).items()}
         try:
             torch.cuda.reset_peak_memory_stats()
-            for _ in range(2):  # warmup + measured
+            for _ in range(2):
                 start = time.time()
                 loss = model(**batch).loss
                 loss.backward()
@@ -42,7 +36,6 @@ def probe(size: str, grad_checkpoint: bool) -> None:
         except torch.OutOfMemoryError:
             print(f"bs={bs:3d}  OOM")
             break
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

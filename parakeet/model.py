@@ -1,11 +1,3 @@
-"""Parakeet-CTC from scratch: random init, never load pretrained weights.
-
-tokenizer.json / preprocessor config come from nvidia/parakeet-ctc-0.6b —
-lookup tables and preprocessing settings, not neural weights. (The TDT
-repo nvidia/parakeet-tdt-0.6b-v2 is NeMo-format only, no HF tokenizer
-files; the ctc-0.6b repo ships the same BPE-1024 family in HF format.)
-"""
-
 import torch
 from transformers import (
     ParakeetCTCConfig,
@@ -17,7 +9,6 @@ from transformers import (
 
 TOKENIZER_SOURCE = "nvidia/parakeet-ctc-0.6b"
 
-# ~26M FastConformer, scaled from the 0.6b defaults (d=1024, 24 layers)
 SMALL_ENCODER = dict(
     hidden_size=256,
     num_hidden_layers=16,
@@ -30,25 +21,21 @@ SMALL_ENCODER = dict(
     dropout=0.0,
 )
 
-
 def build_tokenizer() -> ParakeetTokenizerFast:
     return ParakeetTokenizerFast.from_pretrained(TOKENIZER_SOURCE)
 
-
 def build_feature_extractor() -> ParakeetFeatureExtractor:
     return ParakeetFeatureExtractor.from_pretrained(TOKENIZER_SOURCE)
-
 
 def build_model() -> ParakeetForCTC:
     tokenizer = build_tokenizer()
     encoder_config = ParakeetEncoderConfig(**SMALL_ENCODER)
     config = ParakeetCTCConfig(
         encoder_config=encoder_config.to_dict(),
-        vocab_size=tokenizer.vocab_size + 1,  # +1 CTC blank
-        pad_token_id=tokenizer.vocab_size,    # blank = pad = last id
+        vocab_size=tokenizer.vocab_size + 1,
+        pad_token_id=tokenizer.vocab_size,
     )
-    return ParakeetForCTC(config)  # random init
-
+    return ParakeetForCTC(config)
 
 def init_report(model: torch.nn.Module) -> dict:
     n_params = sum(p.numel() for p in model.parameters())
@@ -61,7 +48,6 @@ def init_report(model: torch.nn.Module) -> dict:
         "frozen": frozen,
         "sample_std": weights[len(weights) // 2].std().item(),
     }
-
 
 if __name__ == "__main__":
     model = build_model()

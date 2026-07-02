@@ -1,8 +1,3 @@
-"""Trainer entry point for Parakeet-CTC.
-
-Run from project root:  python -m parakeet.train --config parakeet/config.yaml
-"""
-
 import argparse
 from pathlib import Path
 
@@ -14,7 +9,6 @@ from common.data import fetch_smoke_subset
 from common.metrics import wer
 from parakeet.dataset import ParakeetCollator, ctc_greedy_decode, prepare_example
 from parakeet.model import build_feature_extractor, build_model, build_tokenizer
-
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -50,7 +44,7 @@ def main() -> None:
 
     def compute_metrics(pred):
         preds = torch.as_tensor(pred.predictions)
-        preds[preds < 0] = blank  # Trainer pads concatenated eval batches with -100
+        preds[preds < 0] = blank
         hyps = ctc_greedy_decode(preds, tok, blank_id=blank)
         refs = []
         for ids in pred.label_ids:
@@ -89,7 +83,6 @@ def main() -> None:
     fe.save_pretrained(out)
     tok.save_pretrained(out)
     print(f"saved to {out}")
-
 
 if __name__ == "__main__":
     main()

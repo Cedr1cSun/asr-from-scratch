@@ -1,15 +1,6 @@
-"""WER with text normalization identical to SURE-EVAL's wenet_compute_cer.py.
-
-English WER path in that script: whitespace-split -> upper() -> strip <...>
-tags -> drop empty tokens. Punctuation is NOT removed on this path (that
-only happens in the Chinese CER characterize() path), so we don't either.
-"""
-
 import jiwer
 
-
 def _stripoff_tags(x: str) -> str:
-    # verbatim port of wenet_compute_cer.stripoff_tags
     if not x:
         return ""
     chars = []
@@ -24,7 +15,6 @@ def _stripoff_tags(x: str) -> str:
             i += 1
     return "".join(chars)
 
-
 def normalize_tokens(text: str) -> list[str]:
     out = []
     for token in text.split():
@@ -32,7 +22,6 @@ def normalize_tokens(text: str) -> list[str]:
         if token:
             out.append(token)
     return out
-
 
 def wer(refs: list[str], hyps: list[str]) -> float:
     ref_strs = [" ".join(normalize_tokens(r)) for r in refs]

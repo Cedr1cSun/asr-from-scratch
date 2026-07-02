@@ -1,8 +1,3 @@
-"""Smoke round 1 for Parakeet-CTC: overfit a single utterance in FP32.
-
-Run from project root:  python -m parakeet.smoke
-"""
-
 import argparse
 import time
 
@@ -12,7 +7,6 @@ from common.data import fetch_smoke_subset
 from common.metrics import normalize_tokens
 from parakeet.dataset import ParakeetCollator, ctc_greedy_decode, prepare_example
 from parakeet.model import build_feature_extractor, build_model, build_tokenizer, init_report
-
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -25,7 +19,7 @@ def main() -> None:
     torch.manual_seed(0)
 
     fe, tok = build_feature_extractor(), build_tokenizer()
-    model = build_model().to(device)  # FP32
+    model = build_model().to(device)
     report = init_report(model)
     print(f"params: {report['params_total'] / 1e6:.1f}M, frozen: {report['frozen'] or 'none'}")
 
@@ -65,7 +59,6 @@ def main() -> None:
     print(f"elapsed {time.time() - start:.0f}s, peak VRAM {peak_gb:.1f}G")
     print(f"loss<0.1: {final_loss < 0.1}  decode match: {match}")
     print("SMOKE ROUND 1: " + ("PASS" if final_loss < 0.1 and match else "FAIL"))
-
 
 if __name__ == "__main__":
     main()

@@ -1,33 +1,23 @@
-"""Feature/label preparation, batch collation and CTC decoding for Parakeet."""
-
 from dataclasses import dataclass
 
 import numpy as np
 import torch
 from transformers import ParakeetFeatureExtractor, ParakeetTokenizerFast
 
-
 def prepare_example(
     sample: dict,
     feature_extractor: ParakeetFeatureExtractor,
     tokenizer: ParakeetTokenizerFast,
 ) -> dict:
-    """Raw audio + transcript -> variable-length input_features + label ids.
-
-    LibriSpeech transcripts are all-caps; the official tokenizer was fit on
-    natural-case text, so lowercase first (scoring normalizes case anyway).
-    No BOS/EOS — CTC labels are the bare token sequence.
-    """
-    audio = np.asarray(sample["audio_array"], dtype=np.float32)  # HF datasets rows give lists
+    audio = np.asarray(sample["audio_array"], dtype=np.float32)
     features = feature_extractor(audio, sampling_rate=sample["sampling_rate"]).input_features[0]
     labels = tokenizer(sample["text"].lower(), add_special_tokens=False)["input_ids"]
     return {"input_features": features, "labels": labels}
 
-
 @dataclass
 class ParakeetCollator:
     feature_extractor: ParakeetFeatureExtractor
-    pad_label_id: int  # = CTC blank; ParakeetForCTC masks labels == pad_token_id, NOT -100
+    pad_label_id: int
 
     def __call__(self, batch: list[dict]) -> dict:
         out = self.feature_extractor.pad(
@@ -42,11 +32,9 @@ class ParakeetCollator:
         out["labels"] = labels
         return out
 
-
 def ctc_greedy_decode(
     ids_batch: torch.Tensor, tokenizer: ParakeetTokenizerFast, blank_id: int
 ) -> list[str]:
-    """argmax id sequences -> texts: collapse repeats, drop blanks, decode."""
     texts = []
     for ids in ids_batch:
         collapsed = torch.unique_consecutive(ids)

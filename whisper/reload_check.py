@@ -1,9 +1,3 @@
-"""Verify a save_pretrained checkpoint reloads and transcribes end-to-end.
-
-This mirrors what a SURE-EVAL ModelWrapper would do: from_pretrained(dir),
-predict(audio) -> text. Run: python -m whisper.reload_check outputs/<run>/final
-"""
-
 import sys
 
 import torch
@@ -11,10 +5,9 @@ from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
 from common.data import fetch_smoke_subset
 
-
 def main(ckpt_dir: str) -> None:
     device = torch.device("cuda")
-    processor = WhisperProcessor.from_pretrained(ckpt_dir)  # local dir, not hub
+    processor = WhisperProcessor.from_pretrained(ckpt_dir)
     model = WhisperForConditionalGeneration.from_pretrained(ckpt_dir).to(device)
     sample = fetch_smoke_subset(n=8)[0]
     features = processor.feature_extractor(
@@ -26,7 +19,6 @@ def main(ckpt_dir: str) -> None:
     print(f"ref: {sample['text']}")
     print(f"hyp: {text}")
     print("RELOAD CHECK: OK (non-empty)" if text.strip() else "RELOAD CHECK: EMPTY OUTPUT")
-
 
 if __name__ == "__main__":
     main(sys.argv[1])

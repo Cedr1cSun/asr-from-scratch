@@ -1,10 +1,3 @@
-"""Whisper-small from scratch: random init, never load pretrained weights.
-
-Tokenizer / feature extractor / generation config are pulled from
-openai/whisper-small.en — those are lookup tables and preprocessing
-settings, not neural weights, so full-random-init still holds.
-"""
-
 import torch
 from transformers import (
     GenerationConfig,
@@ -29,7 +22,6 @@ _COMMON = dict(
     decoder_start_token_id=50257,
 )
 
-# dims copied from openai/whisper-{small,medium}.en config.json
 SIZE_PRESETS = {
     "small": dict(
         _COMMON,
@@ -53,26 +45,19 @@ SIZE_PRESETS = {
     ),
 }
 
-
 def tokenizer_source(size: str) -> str:
     return f"openai/whisper-{size}.en"
-
 
 def build_processor(size: str = "medium") -> WhisperProcessor:
     return WhisperProcessor.from_pretrained(tokenizer_source(size))
 
-
 def build_model(size: str = "medium", apply_spec_augment: bool = False) -> WhisperForConditionalGeneration:
     config = WhisperConfig(**SIZE_PRESETS[size], apply_spec_augment=apply_spec_augment)
-    model = WhisperForConditionalGeneration(config)  # random init
+    model = WhisperForConditionalGeneration(config)
     model.generation_config = GenerationConfig.from_pretrained(tokenizer_source(size))
     return model
 
-
-# the encoder's positional embedding is a fixed sinusoid in the Whisper
-# design (not learned, not pretrained knowledge) — the only expected frozen param
 EXPECTED_FROZEN = {"model.encoder.embed_positions.weight"}
-
 
 def init_report(model: torch.nn.Module) -> dict:
     n_params = sum(p.numel() for p in model.parameters())
@@ -87,7 +72,6 @@ def init_report(model: torch.nn.Module) -> dict:
         "enc_l0_q_std": enc_attn.std().item(),
         "dec_l0_q_std": dec_attn.std().item(),
     }
-
 
 if __name__ == "__main__":
     model = build_model()

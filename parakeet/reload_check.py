@@ -1,8 +1,3 @@
-"""Verify a Parakeet-CTC save_pretrained checkpoint reloads and transcribes.
-
-Run: python -m parakeet.reload_check outputs/<run>/final
-"""
-
 import sys
 
 import numpy as np
@@ -11,7 +6,6 @@ from transformers import ParakeetFeatureExtractor, ParakeetForCTC, ParakeetToken
 
 from common.data import fetch_smoke_subset
 from parakeet.dataset import ctc_greedy_decode
-
 
 def main(ckpt_dir: str) -> None:
     device = torch.device("cuda")
@@ -27,7 +21,6 @@ def main(ckpt_dir: str) -> None:
     print(f"ref: {sample['text']}")
     print(f"hyp: {text}")
     print("RELOAD CHECK: OK (non-empty)" if text.strip() else "RELOAD CHECK: EMPTY OUTPUT")
-
 
 if __name__ == "__main__":
     main(sys.argv[1])

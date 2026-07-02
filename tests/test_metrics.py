@@ -6,18 +6,14 @@ from common.metrics import normalize_tokens, wer
 
 SURE_ASR = "/home/cedric/WorkSpace-Exp/sure/src/sure_eval/evaluation/asr"
 
-
 def test_normalize_matches_wenet_semantics():
     assert normalize_tokens("hello world") == ["HELLO", "WORLD"]
-    assert normalize_tokens("a <noise> b") == ["A", "B"]  # tag stripped, empty dropped
+    assert normalize_tokens("a <noise> b") == ["A", "B"]
     assert normalize_tokens("  spaced\tout ") == ["SPACED", "OUT"]
 
-
 def test_wer_hand_computed():
-    # ref 4 words, hyp has 1 substitution + 1 deletion => 2/4
     assert wer(["the cat sat down"], ["the bat sat"]) == 0.5
     assert wer(["a b"], ["a b"]) == 0.0
-
 
 def test_wer_agrees_with_wenet_script():
     sys.path.insert(0, SURE_ASR)

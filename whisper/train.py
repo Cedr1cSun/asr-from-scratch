@@ -1,8 +1,3 @@
-"""Seq2SeqTrainer entry point.
-
-Run from project root:  python -m whisper.train --config whisper/config.yaml
-"""
-
 import argparse
 from pathlib import Path
 
@@ -13,7 +8,6 @@ from common.data import fetch_smoke_subset
 from common.metrics import wer
 from whisper.dataset import WhisperCollator, prepare_example
 from whisper.model import build_model, build_processor
-
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -80,7 +74,6 @@ def main() -> None:
     model.save_pretrained(out)
     processor.save_pretrained(out)
     print(f"saved to {out}")
-
 
 if __name__ == "__main__":
     main()
