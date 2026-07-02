@@ -1,4 +1,5 @@
 import io
+import os
 from pathlib import Path
 
 import numpy as np
@@ -10,8 +11,14 @@ DATA_DIR = PROJECT_ROOT / "data"
 
 LIBRISPEECH_REPO = "openslr/librispeech_asr"
 
+def data_dir() -> Path:
+    env = os.environ.get("ASRFS_DATA_DIR")
+    if env:
+        return Path(env)
+    return DATA_DIR
+
 def fetch_smoke_subset(n: int = 128) -> Dataset:
-    cache = DATA_DIR / f"smoke_train.clean.100_head{n}"
+    cache = data_dir() / f"smoke_train.clean.100_head{n}"
     if cache.exists():
         return load_from_disk(str(cache))
 
@@ -29,7 +36,7 @@ def fetch_smoke_subset(n: int = 128) -> Dataset:
             }
         )
     ds = Dataset.from_list(rows)
-    DATA_DIR.mkdir(exist_ok=True)
+    data_dir().mkdir(parents=True, exist_ok=True)
     ds.save_to_disk(str(cache))
     return ds
 
