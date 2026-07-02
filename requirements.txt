@@ -1,0 +1,9 @@
+torch
+transformers
+datasets[audio]
+evaluate
+jiwer
+accelerate
+soundfile
+pyyaml
+tensorboard
