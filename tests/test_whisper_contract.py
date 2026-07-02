@@ -14,6 +14,9 @@ CONFIG_PATH = Path(__file__).resolve().parents[1] / "asrfs" / "whisper" / "confi
 EXPECTED_SIGNATURES = {
     "build_processor": ["cfg"],
     "build_model": ["cfg"],
+    "build_dataset": ["cfg", "processor", "mode"],
+    "make_example": ["processor", "audio", "sampling_rate", "text"],
+    "build_collator": ["cfg", "processor", "model"],
 }
 
 

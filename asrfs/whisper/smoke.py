@@ -7,7 +7,7 @@ import yaml
 
 from asrfs.common.data import fetch_smoke_subset
 from asrfs.common.metrics import normalize_tokens
-from asrfs.whisper.dataset import WhisperCollator, prepare_example
+from asrfs.whisper.dataset import build_collator, make_example
 from asrfs.whisper.model import build_model, build_processor, init_report
 
 
@@ -40,8 +40,8 @@ def main() -> None:
     print(f"sample {sample['id']}: {len(sample['audio_array']) / sample['sampling_rate']:.1f}s")
     print(f"ref: {ref_text}")
 
-    example = prepare_example(sample, processor)
-    collator = WhisperCollator(processor, model.config.decoder_start_token_id)
+    example = make_example(processor, sample["audio_array"], sample["sampling_rate"], sample["text"])
+    collator = build_collator(cfg, processor, model)
     batch = {k: v.to(device) for k, v in collator([example]).items()}
     print(f"input_features {tuple(batch['input_features'].shape)}, labels {tuple(batch['labels'].shape)}")
 

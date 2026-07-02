@@ -6,7 +6,7 @@ import torch
 import yaml
 
 from asrfs.common.data import fetch_smoke_subset
-from asrfs.whisper.dataset import WhisperCollator, prepare_example
+from asrfs.whisper.dataset import build_collator, make_example
 from asrfs.whisper.model import build_model, build_processor
 
 
@@ -18,8 +18,9 @@ def probe(cfg: dict, grad_checkpoint: bool) -> None:
         model.gradient_checkpointing_enable()
         model.config.use_cache = False
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
-    example = prepare_example(fetch_smoke_subset(n=8)[0], processor)
-    collator = WhisperCollator(processor, model.config.decoder_start_token_id)
+    sample = fetch_smoke_subset(n=8)[0]
+    example = make_example(processor, sample["audio_array"], sample["sampling_rate"], sample["text"])
+    collator = build_collator(cfg, processor, model)
     model.train()
 
     for bs in [1, 2, 4, 8, 16, 32]:

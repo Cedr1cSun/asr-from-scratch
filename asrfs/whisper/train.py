@@ -4,9 +4,8 @@ from pathlib import Path
 import yaml
 from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments
 
-from asrfs.common.data import fetch_smoke_subset
 from asrfs.common.metrics import wer
-from asrfs.whisper.dataset import WhisperCollator, prepare_example
+from asrfs.whisper.dataset import build_collator, build_dataset
 from asrfs.whisper.model import build_model, build_processor
 
 
@@ -26,14 +25,7 @@ def main() -> None:
     processor = build_processor(cfg)
     model = build_model(cfg)
 
-    n_train, n_eval = cfg["data"]["n_train"], cfg["data"]["n_eval"]
-    raw = fetch_smoke_subset(n=n_train + n_eval)
-    prepared = raw.map(
-        lambda s: prepare_example(s, processor),
-        remove_columns=raw.column_names,
-    )
-    train_ds = prepared.select(range(n_train))
-    eval_ds = prepared.select(range(n_train, n_train + n_eval))
+    train_ds, eval_ds = build_dataset(cfg, processor, mode="mini100")
 
     def compute_metrics(pred):
         label_ids = pred.label_ids
@@ -66,7 +58,7 @@ def main() -> None:
         args=training_args,
         train_dataset=train_ds,
         eval_dataset=eval_ds,
-        data_collator=WhisperCollator(processor, model.config.decoder_start_token_id),
+        data_collator=build_collator(cfg, processor, model),
         processing_class=processor,
         compute_metrics=compute_metrics,
     )

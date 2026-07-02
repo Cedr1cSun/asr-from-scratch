@@ -11,6 +11,10 @@ DATA_DIR = PROJECT_ROOT / "data"
 
 LIBRISPEECH_REPO = "openslr/librispeech_asr"
 
+# 数据集 revision 钉死(commit sha),防 overfit1/mini100 样本漂移(harness 设计 §2)。
+# 取值命令:python -c "from huggingface_hub import HfApi; print(HfApi().dataset_info('openslr/librispeech_asr').sha)"
+LIBRISPEECH_REVISION = "71cacbfb7e2354c4226d01e70d77d5fca3d04ba1"
+
 def data_dir() -> Path:
     env = os.environ.get("ASRFS_DATA_DIR")
     if env:
@@ -22,7 +26,13 @@ def fetch_smoke_subset(n: int = 128) -> Dataset:
     if cache.exists():
         return load_from_disk(str(cache))
 
-    stream = load_dataset(LIBRISPEECH_REPO, "clean", split="train.100", streaming=True)
+    stream = load_dataset(
+        LIBRISPEECH_REPO,
+        "clean",
+        split="train.100",
+        streaming=True,
+        revision=LIBRISPEECH_REVISION,
+    )
     stream = stream.cast_column("audio", Audio(decode=False))
     rows = []
     for sample in stream.take(n):
