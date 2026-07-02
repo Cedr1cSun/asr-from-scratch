@@ -2,9 +2,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from asrfs.common.metrics import normalize_tokens, wer
 
-SURE_ASR = "/home/cedric/WorkSpace-Exp/sure/src/sure_eval/evaluation/asr"
+SURE_ASR = Path("/home/cedric/WorkSpace-Exp/sure/src/sure_eval/evaluation/asr")
 
 def test_normalize_matches_wenet_semantics():
     assert normalize_tokens("hello world") == ["HELLO", "WORLD"]
@@ -16,7 +18,9 @@ def test_wer_hand_computed():
     assert wer(["a b"], ["a b"]) == 0.0
 
 def test_wer_agrees_with_wenet_script():
-    sys.path.insert(0, SURE_ASR)
+    if not SURE_ASR.exists():
+        pytest.skip(f"sure repo not present at {SURE_ASR}")
+    sys.path.insert(0, str(SURE_ASR))
     import wenet_compute_cer
 
     refs = ["the cat sat down", "hello world again", "one two three four five"]
