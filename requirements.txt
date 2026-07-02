@@ -8,3 +8,4 @@ soundfile
 pyyaml
 tensorboard
 librosa
+sentencepiece
