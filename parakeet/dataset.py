@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+import numpy as np
 import torch
 from transformers import ParakeetFeatureExtractor, ParakeetTokenizerFast
 
@@ -17,9 +18,8 @@ def prepare_example(
     natural-case text, so lowercase first (scoring normalizes case anyway).
     No BOS/EOS — CTC labels are the bare token sequence.
     """
-    features = feature_extractor(
-        sample["audio_array"], sampling_rate=sample["sampling_rate"]
-    ).input_features[0]
+    audio = np.asarray(sample["audio_array"], dtype=np.float32)  # HF datasets rows give lists
+    features = feature_extractor(audio, sampling_rate=sample["sampling_rate"]).input_features[0]
     labels = tokenizer(sample["text"].lower(), add_special_tokens=False)["input_ids"]
     return {"input_features": features, "labels": labels}
 
