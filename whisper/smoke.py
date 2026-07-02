@@ -8,21 +8,14 @@ Run from project root:  python -m whisper.smoke
 """
 
 import argparse
-import re
 import time
 
 import torch
 
 from common.data import fetch_smoke_subset
+from common.metrics import normalize_tokens
 from whisper.dataset import WhisperCollator, prepare_example
 from whisper.model import build_model, build_processor, init_report
-
-PUNCT = re.compile(r"[^A-Z' ]")
-
-
-def rough_normalize(text: str) -> str:
-    """Placeholder for common/metrics.py (wenet_compute_cer.py port): upper + strip punct."""
-    return " ".join(PUNCT.sub(" ", text.upper()).split())
 
 
 def main() -> None:
@@ -74,7 +67,7 @@ def main() -> None:
     hyp_text = processor.tokenizer.decode(pred_ids[0], skip_special_tokens=True)
     print(f"hyp: {hyp_text}")
 
-    match = rough_normalize(hyp_text) == rough_normalize(ref_text)
+    match = normalize_tokens(hyp_text) == normalize_tokens(ref_text)
     peak_gb = torch.cuda.max_memory_allocated() / 1024**3
     print(f"elapsed {time.time() - start:.0f}s, peak VRAM {peak_gb:.1f}G")
     print(f"loss<0.1: {final_loss < 0.1}  decode match: {match}")
