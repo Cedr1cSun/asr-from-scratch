@@ -23,8 +23,7 @@ asr-from-scratch/
 │   ├── model.py             # d=256 × 16 层,~26M
 │   ├── dataset.py           # collator:变长 pad + attention_mask;labels pad 到 blank(1024)
 │   ├── train.py / smoke.py / reload_check.py / config.yaml
-├── tests/                   # pytest,含与平台 WER 脚本的交叉验证
-└── docs/superpowers/        # 设计 spec(含全部冒烟数据)与实施计划
+└── tests/                   # pytest,含与平台 WER 脚本的交叉验证
 ```
 
 ## 环境
@@ -63,7 +62,7 @@ python3 -m venv .venv
 - tokenizer / feature_extractor / generation_config 复用官方 repo 的**配置文件**(查表与预处理参数,非神经权重):Whisper 用 `openai/whisper-{size}.en`,Parakeet 用 `nvidia/parakeet-ctc-0.6b`
 - checkpoint 用标准 `save_pretrained` 目录(模型 + processor 同目录),可被 SURE-EVAL ModelWrapper 直接加载
 
-## 冒烟结果摘要(细节见 docs/superpowers/specs/ 各 spec 末节)
+## 冒烟结果摘要
 
 | 项 | Whisper medium(764M) | Parakeet-CTC(26M) |
 |---|---|---|
@@ -74,7 +73,6 @@ python3 -m venv .venv
 
 ## 注意事项
 
-- **WSL2 显存陷阱**:超限不报 OOM,CUDA 静默溢出到系统内存,步时慢 ~100 倍。batch 上限一律按步时判定,不要等 OOM。
 - datasets 5.x 音频解码默认走 torchcodec(需系统 FFmpeg);本项目用 `Audio(decode=False)` + soundfile 直接解 FLAC 绕开。
 - from-scratch 的训练行为与微调完全不同:warmup 期 loss 冲高(Whisper 冲到 ~40)是常态,收敛判据看趋势;微调用的 token_acc 阈值不适用。
 - 全量 960h 训练在集群做,建议 BF16;本地 FP32 只用于冒烟。
