@@ -19,7 +19,7 @@ def main() -> None:
     torch.manual_seed(0)
 
     fe, tok = build_feature_extractor(), build_tokenizer()
-    model = build_model().to(device)
+    model = build_model({}).to(device)
     report = init_report(model)
     print(f"params: {report['params_total'] / 1e6:.1f}M, frozen: {report['frozen'] or 'none'}")
 

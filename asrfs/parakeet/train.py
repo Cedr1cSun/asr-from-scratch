@@ -27,7 +27,7 @@ def main() -> None:
         cfg["training"]["per_device_train_batch_size"] = args.batch_size
 
     fe, tok = build_feature_extractor(), build_tokenizer()
-    model = build_model()
+    model = build_model(cfg)
     blank = tok.vocab_size
 
     n_train, n_eval = cfg["data"]["n_train"], cfg["data"]["n_eval"]
