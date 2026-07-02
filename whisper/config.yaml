@@ -1,0 +1,19 @@
+# whisper from-scratch training config
+model_size: medium
+apply_spec_augment: false   # mini100 冒烟关;全量训练开
+run_name: mini100_medium_fp32
+
+data:
+  n_train: 100      # mini100:前 100 条
+  n_eval: 20        # 随后 20 条当 eval(冒烟看趋势,不求指标)
+
+training:
+  learning_rate: 3.0e-4
+  warmup_steps: 50
+  max_steps: 300
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 4
+  gradient_checkpointing: true
+  logging_steps: 10
+  eval_steps: 100
+  generation_max_length: 225

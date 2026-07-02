@@ -13,19 +13,9 @@ from transformers import (
     WhisperProcessor,
 )
 
-TOKENIZER_SOURCE = "openai/whisper-small.en"
-
-# whisper-small.en dims, copied from its config.json
-SMALL_EN = dict(
+_COMMON = dict(
     vocab_size=51864,
     num_mel_bins=80,
-    d_model=768,
-    encoder_layers=12,
-    encoder_attention_heads=12,
-    encoder_ffn_dim=3072,
-    decoder_layers=12,
-    decoder_attention_heads=12,
-    decoder_ffn_dim=3072,
     max_source_positions=1500,
     max_target_positions=448,
     activation_function="gelu",
@@ -39,15 +29,43 @@ SMALL_EN = dict(
     decoder_start_token_id=50257,
 )
 
+# dims copied from openai/whisper-{small,medium}.en config.json
+SIZE_PRESETS = {
+    "small": dict(
+        _COMMON,
+        d_model=768,
+        encoder_layers=12,
+        encoder_attention_heads=12,
+        encoder_ffn_dim=3072,
+        decoder_layers=12,
+        decoder_attention_heads=12,
+        decoder_ffn_dim=3072,
+    ),
+    "medium": dict(
+        _COMMON,
+        d_model=1024,
+        encoder_layers=24,
+        encoder_attention_heads=16,
+        encoder_ffn_dim=4096,
+        decoder_layers=24,
+        decoder_attention_heads=16,
+        decoder_ffn_dim=4096,
+    ),
+}
 
-def build_processor() -> WhisperProcessor:
-    return WhisperProcessor.from_pretrained(TOKENIZER_SOURCE)
+
+def tokenizer_source(size: str) -> str:
+    return f"openai/whisper-{size}.en"
 
 
-def build_model(apply_spec_augment: bool = False) -> WhisperForConditionalGeneration:
-    config = WhisperConfig(**SMALL_EN, apply_spec_augment=apply_spec_augment)
+def build_processor(size: str = "medium") -> WhisperProcessor:
+    return WhisperProcessor.from_pretrained(tokenizer_source(size))
+
+
+def build_model(size: str = "medium", apply_spec_augment: bool = False) -> WhisperForConditionalGeneration:
+    config = WhisperConfig(**SIZE_PRESETS[size], apply_spec_augment=apply_spec_augment)
     model = WhisperForConditionalGeneration(config)  # random init
-    model.generation_config = GenerationConfig.from_pretrained(TOKENIZER_SOURCE)
+    model.generation_config = GenerationConfig.from_pretrained(tokenizer_source(size))
     return model
 
 
