@@ -54,7 +54,9 @@ class CTCCollator:
 
 def _to_row(sample: dict, fe, tok) -> dict:
     # 额外列契约(harness,R1):id/text 供 run_smoke 报告引用参考转写,
-    # length: 原始音频采样点数,供 Trainer group_by_length(length_column_name="length")。
+    # length: 原始音频采样点数(A4 定案,提取前算,与 whisper 一致的分桶语义),
+    # 供 Trainer group_by_length(length_column_name="length")分桶;
+    # collator 只读 input_features/labels,额外列无害。
     row = prepare_ctc_example(sample, fe, tok)
     row["id"] = str(sample["id"])
     row["text"] = sample["text"]

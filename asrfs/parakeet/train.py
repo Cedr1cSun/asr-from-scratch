@@ -4,7 +4,7 @@ from pathlib import Path
 import yaml
 
 from asrfs.common.ctc import build_ctc_trainer
-from asrfs.parakeet.dataset import build_collator, build_dataset, ctc_greedy_decode
+from asrfs.parakeet.dataset import build_collator, build_dataset
 from asrfs.parakeet.model import build_model, build_processor, save_checkpoint
 
 
