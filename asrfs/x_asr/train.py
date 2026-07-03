@@ -84,6 +84,9 @@ def build_trainer(cfg, model, processor, train_ds, eval_ds, collator, overrides:
         clipping_scale=2.0,
     )
     scheduler = EdenForTrainer(optimizer, lr_batches=7500, lr_epochs=3.5, warmup_start=0.1)
+    # HF Trainer 在 optimizer.step() 之后才调 scheduler.step(),Eden 构造时不写 lr,
+    # 首步会以未 warmup 的 base_lr 跑;先按 batch=0 写入 warmup 起点(icefall 语义)。
+    scheduler.step_batch(0)
 
     return Trainer(
         model=model,
