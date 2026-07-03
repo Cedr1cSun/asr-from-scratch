@@ -204,14 +204,18 @@ class SenseVoiceForCTC(PreTrainedModel):
         self.post_init()
 
     def _init_weights(self, module):
+        # 用 torch.nn.init.* 而非 tensor 原地方法:HF fast-init 在 from_pretrained
+        # 期间会临时打补丁 torch.nn.init.*,让已从 checkpoint 加载的张量(标了
+        # _is_hf_initialized)跳过重新随机初始化;原地 .data.xxx_() 绕过该补丁,
+        # 会在权重加载完之后把刚读进来的 checkpoint 值覆盖成新随机值。
         std = self.config.initializer_range
         if isinstance(module, (nn.Linear, nn.Conv1d)):
-            module.weight.data.normal_(mean=0.0, std=std)
+            nn.init.normal_(module.weight, mean=0.0, std=std)
             if module.bias is not None:
-                module.bias.data.zero_()
+                nn.init.zeros_(module.bias)
         elif isinstance(module, nn.LayerNorm):
-            module.weight.data.fill_(1.0)
-            module.bias.data.zero_()
+            nn.init.ones_(module.weight)
+            nn.init.zeros_(module.bias)
 
     def forward(self, input_features, attention_mask=None, labels=None, **kwargs):
         b, t, _ = input_features.shape
