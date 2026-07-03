@@ -9,7 +9,7 @@ import inspect
 
 import pytest
 
-PACKAGES = ["asrfs.whisper", "asrfs.parakeet"]
+PACKAGES = ["asrfs.whisper", "asrfs.parakeet", "asrfs.sensevoice"]
 
 CONTRACT_FUNCTIONS = {
     "build_processor": ["cfg"],
@@ -61,3 +61,9 @@ def test_pinned_per_model_values():
     assert parakeet.LOSS_FAMILY == "ctc"
     assert parakeet.LABEL_PAD_ID == 1024  # blank = ParakeetTokenizerFast.vocab_size
     assert parakeet.EXPECTED_FROZEN == set()
+
+    sensevoice = importlib.import_module("asrfs.sensevoice")
+
+    assert sensevoice.LOSS_FAMILY == "ctc"
+    assert sensevoice.LABEL_PAD_ID == 1024  # blank = ParakeetTokenizerFast.vocab_size
+    assert sensevoice.EXPECTED_FROZEN == set()
