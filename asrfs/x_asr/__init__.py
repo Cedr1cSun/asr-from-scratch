@@ -16,6 +16,7 @@ from asrfs.x_asr.model import (
     load_checkpoint,
     save_checkpoint,
 )
+from asrfs.x_asr.train import build_trainer
 
 __all__ = [
     "EXPECTED_FROZEN",
@@ -27,6 +28,7 @@ __all__ = [
     "build_dataset",
     "build_model",
     "build_processor",
+    "build_trainer",
     "decode",
     "load_checkpoint",
     "make_example",

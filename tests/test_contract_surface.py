@@ -9,7 +9,7 @@ import inspect
 
 import pytest
 
-PACKAGES = ["asrfs.whisper", "asrfs.parakeet", "asrfs.sensevoice"]
+PACKAGES = ["asrfs.whisper", "asrfs.parakeet", "asrfs.sensevoice", "asrfs.x_asr"]
 
 CONTRACT_FUNCTIONS = {
     "build_processor": ["cfg"],
@@ -45,7 +45,7 @@ def test_nine_functions_present_with_pinned_signatures(pkg_name):
 @pytest.mark.parametrize("pkg_name", PACKAGES)
 def test_three_constants_present_and_typed(pkg_name):
     pkg = importlib.import_module(pkg_name)
-    assert isinstance(pkg.LOSS_FAMILY, str) and pkg.LOSS_FAMILY in {"ce", "ctc"}
+    assert isinstance(pkg.LOSS_FAMILY, str) and pkg.LOSS_FAMILY in {"ce", "ctc", "rnnt"}
     assert isinstance(pkg.LABEL_PAD_ID, int) and not isinstance(pkg.LABEL_PAD_ID, bool)
     assert isinstance(pkg.EXPECTED_FROZEN, set)
 
@@ -67,3 +67,9 @@ def test_pinned_per_model_values():
     assert sensevoice.LOSS_FAMILY == "ctc"
     assert sensevoice.LABEL_PAD_ID == 1024  # blank = ParakeetTokenizerFast.vocab_size
     assert sensevoice.EXPECTED_FROZEN == set()
+
+    x_asr = importlib.import_module("asrfs.x_asr")
+
+    assert x_asr.LOSS_FAMILY == "rnnt"
+    assert x_asr.LABEL_PAD_ID == 1024  # blank = ParakeetTokenizerFast.vocab_size
+    assert x_asr.EXPECTED_FROZEN == set()
