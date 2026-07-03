@@ -16,7 +16,7 @@ training:
   seed: 42
 
 smoke:
-  overfit1_steps: 500  # 保守初值;harness 标定后按 ceil(step_below_0.1*1.2/10)*10 钉死
+  overfit1_steps: 110  # 标定:Trainer 化 FP32 首次 loss<0.1 于 step 91(2080Ti 实跑,step90=0.125→step91=0.095);ceil(91*1.2/10)*10
   overfit1_lr: 3.0e-4
   mini100_steps: 250   # 20 epoch 等效:100*20/(8*1)
   mini100_lr: 3.0e-4
