@@ -71,3 +71,80 @@ def test_build_trainer_unknown_override_raises(tmp_path, tiny_model):
             CFG, tiny_model, FakeBundle(), None, None, lambda b: b,
             overrides={"definitely_not_a_field": 1},
         )
+
+
+def test_models_disable_accepts_loss_kwargs(tmp_path, tiny_model):
+    """F3 结构钉:forward(**kwargs)(VAR_KEYWORD)会让 transformers 5.12 Trainer
+    判定 model_accepts_loss_kwargs=True,从而跳过 training_step 里 loss/grad_accum
+    的归一化。两个模型都声明类属性 accepts_loss_kwargs=False,Trainer 在 __init__
+    直接读它(trainer.py model_accepts_loss_kwargs 分支)。任一模型回退到 **kwargs
+    推断都会让此断言失败。"""
+    from transformers import Trainer, TrainingArguments
+
+    from asrfs.sensevoice.model import SenseVoiceConfig, SenseVoiceForCTC
+
+    torch.manual_seed(0)
+    sv = SenseVoiceForCTC(SenseVoiceConfig(
+        vocab_size=11, hidden_size=32, num_hidden_layers=2, num_attention_heads=2,
+        intermediate_size=64, fsmn_kernel_size=11, sanm_shift=0, lfr_m=7, lfr_n=6,
+        num_mel_bins=8, dropout=0.0, blank_id=10,
+    ))
+    for m in (tiny_model, sv):
+        assert m.accepts_loss_kwargs is False
+        trainer = Trainer(
+            model=m, args=TrainingArguments(output_dir=str(tmp_path), report_to=[]),
+        )
+        assert trainer.model_accepts_loss_kwargs is False
+
+
+def test_grad_accum_normalizes_step_loss(tmp_path, tiny_model):
+    """F3 行为验证:accepts_loss_kwargs=False → training_step 按
+    current_gradient_accumulation_steps 归一化 loss(仅在 num_items_in_batch 非空时
+    才是 bug 触发条件)。grad_accum=2 的 step loss 必须是 grad_accum=1 的一半
+    (micro-batch 均值),而不是等于它——后者即 **kwargs 触发的 G× 梯度放大 bug。
+    每步前固定随机种子以钉住 zipformer 训练态的随机层丢弃。"""
+    trainer = build_trainer(
+        {**CFG, "run_name": "xa_ga"}, tiny_model, FakeBundle(),
+        train_ds=None, eval_ds=None, collator=lambda b: b,
+        overrides={"output_dir": str(tmp_path)},
+    )
+    model = trainer.model
+    torch.manual_seed(0)
+    feats = torch.randn(2, 41, 80)
+    mask = torch.ones(2, 41)
+    labels = torch.full((2, 4), TINY["blank_id"], dtype=torch.long)
+    labels[0, :3] = torch.tensor([1, 2, 3])
+    labels[1, :4] = torch.tensor([4, 5, 6, 7])
+    inputs = {"input_features": feats, "attention_mask": mask, "labels": labels}
+
+    def step(g):
+        model.zero_grad()
+        trainer.current_gradient_accumulation_steps = g
+        torch.manual_seed(1234)
+        return trainer.training_step(
+            model, {k: v.clone() for k, v in inputs.items()}, num_items_in_batch=10
+        )
+
+    loss1 = step(1)
+    loss2 = step(2)
+    assert torch.allclose(loss2 * 2, loss1, rtol=1e-4)
+
+
+def test_on_epoch_end_advances_eden_epoch(tmp_path, tiny_model):
+    """F6:Eden 的 epoch 衰减靠每 epoch 末 step_epoch() 驱动;HF Trainer 只调
+    step()(→step_batch),epoch 因子会永远停在 0。BatchCountCallback.on_epoch_end
+    从 CallbackHandler 传入的 lr_scheduler 上调 step_epoch。这里走真实
+    callback_handler.on_epoch_end 接线(call_event 会把 lr_scheduler 传给回调),
+    验证 Eden.epoch 被推进。"""
+    trainer = build_trainer(
+        {**CFG, "run_name": "xa_epoch"}, tiny_model, FakeBundle(),
+        train_ds=None, eval_ds=None, collator=lambda b: b,
+        overrides={"output_dir": str(tmp_path)},
+    )
+    assert isinstance(trainer.callback_handler.lr_scheduler, EdenForTrainer)
+    sched = trainer.lr_scheduler
+    start = sched.epoch
+    trainer.callback_handler.on_epoch_end(trainer.args, trainer.state, trainer.control)
+    assert sched.epoch == start + 1
+    trainer.callback_handler.on_epoch_end(trainer.args, trainer.state, trainer.control)
+    assert sched.epoch == start + 2

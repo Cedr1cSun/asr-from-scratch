@@ -94,6 +94,43 @@ def test_forward_loss_finite_and_backprop():
     assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in model.parameters())
 
 
+def test_loss_uses_per_sample_logit_lengths():
+    """RNN-T loss 必须按每样本真实编码器帧数(encoder_out_lens)算,不是 batch 的
+    padded 时间维 encoder_out.size(1)。两条不同真实长度合批,reduction="mean" 下
+    batch loss 必须等于两条单样本 loss 的均值。用全长(full-length mutation)会把
+    padding 帧塞进短样本网格,短样本 loss 被抬高 → 均值等式被破坏(实测 mutant
+    batch≈24.7 vs 正确≈20.2)。45/27 是"干净"长度对:短样本末帧不受 batch 末端
+    SimpleDownsample 的 padding 泄漏影响(见 test_encode_batch_mask),残差 ~1e-7。"""
+    torch.manual_seed(0)
+    model = XASRForRNNT(XASRConfig(**TINY)).eval()
+    t_long, t_short = 45, 27
+    torch.manual_seed(7)
+    a = torch.randn(1, t_long, 80)
+    b = torch.randn(1, t_short, 80)
+    batch = torch.zeros(2, t_long, 80)
+    batch[0] = a[0]
+    batch[1, :t_short] = b[0]
+    mask = torch.zeros(2, t_long)
+    mask[0] = 1
+    mask[1, :t_short] = 1
+    blank = TINY["blank_id"]
+    la_tok, lb_tok = [1, 2, 3, 4], [5, 6]
+    labels = torch.full((2, 4), blank, dtype=torch.long)
+    labels[0] = torch.tensor(la_tok)
+    labels[1, :2] = torch.tensor(lb_tok)
+    with torch.no_grad():
+        batch_loss = model(input_features=batch, attention_mask=mask, labels=labels).loss
+        loss_a = model(
+            input_features=a, attention_mask=torch.ones(1, t_long),
+            labels=torch.tensor([la_tok]),
+        ).loss
+        loss_b = model(
+            input_features=b, attention_mask=torch.ones(1, t_short),
+            labels=torch.tensor([lb_tok]),
+        ).loss
+    assert torch.allclose(batch_loss, (loss_a + loss_b) / 2, rtol=1e-4)
+
+
 def test_forward_no_labels_returns_encoder_out(tiny_model):
     feats = torch.randn(1, 25, 80)
     out = tiny_model(input_features=feats, attention_mask=torch.ones(1, 25))
@@ -103,6 +140,7 @@ def test_forward_no_labels_returns_encoder_out(tiny_model):
 
 
 def test_greedy_decode_returns_token_lists(tiny_model):
+    torch.manual_seed(0)
     feats = torch.randn(2, 41, 80)
     mask = torch.ones(2, 41)
     mask[1, 25:] = 0
@@ -111,6 +149,20 @@ def test_greedy_decode_returns_token_lists(tiny_model):
     for h in hyps:
         assert isinstance(h, list)
         assert all(isinstance(t, int) and 0 <= t < TINY["vocab_size"] and t != TINY["blank_id"] for t in h)
+    # greedy 逐样本用各自的 encoder_out_lens(不是 batch padded 长度)。tiny 模型
+    # 每帧发一个非 blank,故 token 数 == 各自编码器帧数 ((L-7)//2+1)//2 = 9 / 5。
+    def enc(length):
+        return ((length - 7) // 2 + 1) // 2
+
+    assert len(hyps[0]) == enc(41) == 9
+    assert len(hyps[1]) == enc(25) == 5
+    assert 0 < len(hyps[1]) < len(hyps[0])  # 短样本 hyp 严格更短
+    # 对每条样本单独跑 greedy 作参照:逐 token 相等 → per-sample lens 用法被钉死
+    # (若误用 batch 长度,短样本会多解到 9 帧,token 列表必然不等)。
+    ref0 = tiny_model.greedy_decode(feats[:1], torch.ones(1, 41))
+    ref1 = tiny_model.greedy_decode(feats[1:2, :25], torch.ones(1, 25))
+    assert hyps[0] == ref0[0]
+    assert hyps[1] == ref1[0]
 
 
 def test_checkpoint_roundtrip(tmp_path, tiny_model):

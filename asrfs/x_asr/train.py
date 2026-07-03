@@ -50,6 +50,15 @@ class BatchCountCallback(TrainerCallback):
     def on_step_begin(self, args, state, control, **kwargs):
         set_batch_count(self._model, float(state.global_step))
 
+    def on_epoch_end(self, args, state, control, **kwargs):
+        # icefall 每个 epoch 末调 scheduler.step_epoch() 驱动 Eden 的 epoch 衰减;
+        # HF Trainer 只会调 scheduler.step()(→ step_batch),epoch 因子始终停在 0。
+        # CallbackHandler.call_event 把 lr_scheduler 传进每个事件(trainer_callback.py),
+        # 这里取出并推进 epoch(缺失或无 step_epoch 时静默跳过)。
+        sched = kwargs.get("lr_scheduler")
+        if sched is not None and hasattr(sched, "step_epoch"):
+            sched.step_epoch()
+
 
 def build_trainer(cfg, model, processor, train_ds, eval_ds, collator, overrides: dict):
     t_cfg = cfg["training"]
@@ -66,6 +75,8 @@ def build_trainer(cfg, model, processor, train_ds, eval_ds, collator, overrides:
         "seed": t_cfg.get("seed", 42),
         "save_strategy": "no",
         "report_to": ["tensorboard"],
+        # icefall recipe:ScaledAdam 内部裁剪(clipping_scale=2.0),禁用 Trainer 外部全局裁剪。
+        "max_grad_norm": 0.0,
     }
     if eval_ds is not None:
         cfg_args["eval_strategy"] = "steps"

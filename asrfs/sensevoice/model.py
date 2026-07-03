@@ -182,6 +182,12 @@ class SANMEncoderLayer(nn.Module):
 class SenseVoiceForCTC(PreTrainedModel):
     config_class = SenseVoiceConfig
     main_input_name = "input_features"
+    # transformers 5.12 Trainer:forward 带 **kwargs(VAR_KEYWORD)会被判定为
+    # model_accepts_loss_kwargs=True,从而跳过 training_step 里
+    # loss/gradient_accumulation_steps 的归一化;我们的 forward 不消费
+    # num_items_in_batch,grad_accum>1 时梯度被放大 G 倍。显式声明 False(Trainer
+    # 在 __init__ 读该类属性,见 trainer.py model_accepts_loss_kwargs 分支)。
+    accepts_loss_kwargs = False
 
     def __init__(self, config: SenseVoiceConfig):
         super().__init__(config)

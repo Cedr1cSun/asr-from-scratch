@@ -114,6 +114,12 @@ class XASRModelOutput(ModelOutput):
 class XASRForRNNT(PreTrainedModel):
     config_class = XASRConfig
     main_input_name = "input_features"
+    # transformers 5.12 Trainer:forward 带 **kwargs(VAR_KEYWORD)会被判定为
+    # model_accepts_loss_kwargs=True,从而跳过 training_step 里
+    # loss/gradient_accumulation_steps 的归一化;我们的 forward 不消费
+    # num_items_in_batch,grad_accum>1 时梯度被放大 G 倍。显式声明 False(Trainer
+    # 在 __init__ 读该类属性,见 trainer.py model_accepts_loss_kwargs 分支)。
+    accepts_loss_kwargs = False
 
     def __init__(self, config: XASRConfig):
         super().__init__(config)
@@ -214,6 +220,9 @@ class XASRForRNNT(PreTrainedModel):
             loss = torchaudio.functional.rnnt_loss(
                 logits=logits.float(),
                 targets=targets.int(),
+                # 每样本真实编码器帧数(encode 返回的 out_lens),不是 batch 的 padded
+                # 时间维。用 encoder_out.size(1) 会把 padding 帧塞进短样本的 RNN-T 网格,
+                # reduction="mean" 下短样本 loss 被污染(实测 batch != 单样本均值)。
                 logit_lengths=encoder_out_lens.int(),
                 target_lengths=target_lengths.int(),
                 blank=blank,
@@ -233,7 +242,11 @@ class XASRForRNNT(PreTrainedModel):
             blank, ctx = self.config.blank_id, self.config.context_size
             hyps = []
             for i in range(encoder_out.size(0)):
-                hyp = [blank] * ctx
+                # icefall greedy_search 的种子:[-1]*(context_size-1)+[blank]。训练时
+                # decoder need_pad=True 对 conv 左侧补零,vendored Decoder 用负 id 让
+                # 对应 embedding 归零(decoder.py:115-117)以在推理端逐位复刻位置 0 的
+                # predictor 状态。用 [blank]*ctx 会偏离训练首帧状态(实测差 ~1.3)。
+                hyp = [-1] * (ctx - 1) + [blank]
                 dec_in = torch.tensor([hyp[-ctx:]], device=encoder_out.device)
                 dec_out = self.decoder(dec_in, need_pad=False)  # (1,1,D)
                 tokens = []
