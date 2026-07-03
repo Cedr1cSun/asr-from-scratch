@@ -16,7 +16,7 @@ training:
   seed: 42
 
 smoke:
-  overfit1_steps: 800  # 保守初值(RNN-T 收敛慢于 CTC);harness 标定后按 ceil(step_below_0.1*1.2/10)*10 钉死
+  overfit1_steps: 460  # 标定:800 步初跑 step_below_0.1=381 → ceil(381*1.2/10)*10(2080Ti FP32,ScaledAdam+Eden)
   overfit1_lr: 0.045
   mini100_steps: 250   # 20 epoch 等效:100*20/(8*1)
   mini100_lr: 0.045
