@@ -53,8 +53,53 @@ def test_forward_shapes_and_lengths(tiny_model):
     feats = torch.randn(b, t, d_in)
     mask = torch.ones(b, t)
     mask[1, 24:] = 0  # 样本 2 真实长 24
-    out = tiny_model(input_features=feats, attention_mask=mask)
-    assert out.logits.shape == (b, math.ceil(t / 6), TINY["vocab_size"])
+    out_masked = tiny_model(input_features=feats, attention_mask=mask)
+    assert out_masked.logits.shape == (b, math.ceil(t / 6), TINY["vocab_size"])
+    # mask 必须有实际效果:样本 2 去掉 mask(视为全 36 帧有效)后 logits 应变化
+    out_unmasked = tiny_model(input_features=feats, attention_mask=torch.ones(b, t))
+    assert not torch.allclose(out_masked.logits[1], out_unmasked.logits[1])
+
+
+def test_apply_lfr_non_multiple_length():
+    # T=25 不是 lfr_n=6 的倍数:T'=ceil(25/6)=5(floor 会给 4,mutation killer)。
+    x = torch.randn(1, 25, 2)
+    out = apply_lfr(x, 7, 6)
+    assert out.shape == (1, 5, 14)
+
+
+def test_forward_non_multiple_length_and_mask(tiny_model):
+    # T=25 非 lfr_n 倍数:输出帧数须为 ceil(25/6)=5。
+    feats25 = torch.randn(1, 25, TINY["num_mel_bins"])
+    out25 = tiny_model(input_features=feats25, attention_mask=torch.ones(1, 25))
+    assert out25.logits.shape[1] == 5
+
+    # mask 语义:batch 内样本 0 真实长 13(pad 到 36,pad 区显式补零),
+    # 应与单独跑 13 帧的前 ceil(13/6)=3 个 LFR 窗完全一致(两侧在有效音频外
+    # 都是零延展,FSMN/attention 的 mask 保证等价)。
+    torch.manual_seed(2)
+    feats13 = torch.randn(1, 13, TINY["num_mel_bins"])
+    padded0 = torch.cat([feats13, torch.zeros(1, 23, TINY["num_mel_bins"])], dim=1)
+    other = torch.randn(1, 36, TINY["num_mel_bins"])
+    batch_feats = torch.cat([padded0, other], dim=0)
+    mask = torch.ones(2, 36)
+    mask[0, 13:] = 0
+    out_batch = tiny_model(input_features=batch_feats, attention_mask=mask)
+    out_single = tiny_model(input_features=feats13, attention_mask=torch.ones(1, 13))
+    assert out_single.logits.shape[1] == 3
+    assert torch.allclose(out_batch.logits[0, :3], out_single.logits[0], atol=1e-5)
+
+
+def test_ctc_input_lengths_use_ceil():
+    # sharp mutation killer:T=25 → T'=ceil(25/6)=5。5 个非 blank 标签,
+    # T'=5>=L=5 时 CTC 可行、loss 有限且 >0;若 out_lengths 误用 floor(=4),
+    # T'<L 不可行,zero_infinity 会把 loss 钳到恰好 0。
+    torch.manual_seed(0)
+    model = SenseVoiceForCTC(SenseVoiceConfig(**TINY)).train()
+    feats = torch.randn(1, 25, TINY["num_mel_bins"])
+    labels = torch.tensor([[1, 2, 3, 4, 5]])
+    out = model(input_features=feats, attention_mask=torch.ones(1, 25), labels=labels)
+    assert out.loss is not None and torch.isfinite(out.loss)
+    assert out.loss.item() > 0
 
 
 def test_pad_invariance(tiny_model):
@@ -103,6 +148,18 @@ def test_default_build_model_structure_and_init():
     assert fsmn.groups == 384 and fsmn.kernel_size == (11,) and fsmn.bias is None
     # 首层投影:in 560 = 80*7
     assert model.encoders0[0].self_attn.linear_q_k_v.in_features == 560
+
+
+def test_default_config_loss_forward():
+    # 默认配置(vocab_size=1025, blank_id=1024)下真实跑一次 loss:
+    # 守住 vocab/blank 一致性从未被真实 forward 验证过的缺口。
+    torch.manual_seed(0)
+    model = build_model({}).train()
+    feats = torch.randn(1, 25, 80)
+    labels = torch.tensor([[5, 17, 900]])
+    out = model(input_features=feats, attention_mask=torch.ones(1, 25), labels=labels)
+    assert out.loss is not None and torch.isfinite(out.loss)
+    assert out.loss.item() > 0
 
 
 def test_model_config_overrides():
