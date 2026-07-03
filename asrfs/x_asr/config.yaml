@@ -1,0 +1,24 @@
+run_name: x_asr_mini100_fp32
+
+data:
+  n_train: 100
+  n_eval: 20
+  max_audio_seconds: 30.0 # full mode 过滤
+
+training:
+  learning_rate: 0.045   # ScaledAdam base_lr(recipe 值;非 AdamW 可比)
+  warmup_steps: 50       # 占位:Eden 自带 warmup(warmup_batches=500),此键 harness 可读但不驱动 Eden
+  max_steps: 300
+  per_device_train_batch_size: 8
+  gradient_accumulation_steps: 1
+  logging_steps: 10
+  eval_steps: 100
+  seed: 42
+
+smoke:
+  overfit1_steps: 800  # 保守初值(RNN-T 收敛慢于 CTC);harness 标定后按 ceil(step_below_0.1*1.2/10)*10 钉死
+  overfit1_lr: 0.045
+  mini100_steps: 250   # 20 epoch 等效:100*20/(8*1)
+  mini100_lr: 0.045
+
+model: {}  # 结构走 model.py SMALL_MODEL 缺省;覆写才写这里
