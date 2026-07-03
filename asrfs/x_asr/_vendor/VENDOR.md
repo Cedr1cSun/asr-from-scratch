@@ -114,7 +114,9 @@ Format: **file — location — what — why**. Every edit is marked in-code wit
 
 - **What:** Deleted `from lhotse.utils import fix_random_seed`. Deleted the trailing
   self-test block: `_test_eden()`, `_test_scaled_adam()`, and the `if __name__ == "__main__":`
-  driver (everything from `def _test_eden():` to EOF). File went 1237 → 950 lines.
+  driver, and the unused `Eve` baseline optimizer class (only referenced by the deleted
+  `_test_scaled_adam`; zero residual references) — everything from `def _test_eden():` to EOF.
+  File went 1237 → 950 lines.
 - **Why:** `lhotse` and `fix_random_seed` are used **only** inside those `__main__`
   self-tests; `ScaledAdam` / `Eden` / `LRScheduler` themselves have no `lhotse` dependency.
   Removing the block drops the only `lhotse` reference and the git-subprocess `__main__` driver.
