@@ -233,8 +233,11 @@ class XASRForRNNT(PreTrainedModel):
         )
 
     @torch.no_grad()
-    def greedy_decode(self, input_features, attention_mask=None) -> list:
-        """max_sym_per_frame=1 的逐帧 greedy(icefall greedy_search 简化版)。"""
+    def greedy_decode(
+        self, input_features, attention_mask=None, max_sym_per_frame: int = 32
+    ) -> list:
+        """标准 transducer greedy:逐帧 emit-until-blank,安全帽防未训练模型死循环;
+        msf=1 简化被 overfit1 判据证伪,见 harness 标定记录。"""
         was_training = self.training
         self.eval()
         try:
@@ -251,17 +254,27 @@ class XASRForRNNT(PreTrainedModel):
                 dec_out = self.decoder(dec_in, need_pad=False)  # (1,1,D)
                 tokens = []
                 for t in range(int(lens[i].item())):
-                    logit = self.joiner(
-                        encoder_out[i : i + 1, t : t + 1].unsqueeze(2),
-                        dec_out.unsqueeze(1),
-                        project_input=True,
-                    )  # (1,1,1,V)
-                    tok = int(logit.reshape(-1).argmax().item())
-                    if tok != blank:
+                    # 标准 transducer greedy:本帧反复发射直到 joiner argmax==blank
+                    # 才前进到下一帧(Graves 2012;icefall greedy_search max_sym>1;
+                    # torchaudio)。max_sym_per_frame 是安全帽:未训练模型近似均匀发射
+                    # (blank 概率 ~1/vocab_size),几乎每步都非 blank,无帽循环在随机
+                    # 权重上会 T2×∞ 空转。32/帧把最坏情况锁到 32·T2 次微型 decoder
+                    # 调用,又远高于任何合理的 burst 发射密度。
+                    n_emit = 0
+                    while n_emit < max_sym_per_frame:
+                        logit = self.joiner(
+                            encoder_out[i : i + 1, t : t + 1].unsqueeze(2),
+                            dec_out.unsqueeze(1),
+                            project_input=True,
+                        )  # (1,1,1,V)
+                        tok = int(logit.reshape(-1).argmax().item())
+                        if tok == blank:
+                            break
                         tokens.append(tok)
                         hyp.append(tok)
                         dec_in = torch.tensor([hyp[-ctx:]], device=encoder_out.device)
                         dec_out = self.decoder(dec_in, need_pad=False)
+                        n_emit += 1
                 hyps.append(tokens)
             return hyps
         finally:

@@ -149,20 +149,71 @@ def test_greedy_decode_returns_token_lists(tiny_model):
     for h in hyps:
         assert isinstance(h, list)
         assert all(isinstance(t, int) and 0 <= t < TINY["vocab_size"] and t != TINY["blank_id"] for t in h)
-    # greedy 逐样本用各自的 encoder_out_lens(不是 batch padded 长度)。tiny 模型
-    # 每帧发一个非 blank,故 token 数 == 各自编码器帧数 ((L-7)//2+1)//2 = 9 / 5。
+    # emit-until-blank(msf 上限 32,见 greedy_decode)。tiny 未训练模型 argmax 近
+    # 均匀、几乎不发 blank,每帧顶到安全帽 → token 数 == 帧数×cap,不再是旧 msf=1 的
+    # 1-per-frame 精确计数。故弃 len==9/5 的硬计数,改断言结构不变量:批==单样本参照
+    # (钉 per-sample lens 用法)、短样本 token 不多于长样本、都被 帧数×cap 硬上界。
     def enc(length):
         return ((length - 7) // 2 + 1) // 2
 
-    assert len(hyps[0]) == enc(41) == 9
-    assert len(hyps[1]) == enc(25) == 5
-    assert 0 < len(hyps[1]) < len(hyps[0])  # 短样本 hyp 严格更短
+    cap = 32  # greedy_decode 的 max_sym_per_frame 默认值
+    assert len(hyps[0]) <= enc(41) * cap  # 每帧至多 cap 次发射 → 帧数×cap 硬上界
+    assert len(hyps[1]) <= enc(25) * cap
+    assert 0 < len(hyps[1]) <= len(hyps[0])  # 短样本(帧更少)token 不多于长样本
     # 对每条样本单独跑 greedy 作参照:逐 token 相等 → per-sample lens 用法被钉死
-    # (若误用 batch 长度,短样本会多解到 9 帧,token 列表必然不等)。
+    # (若误用 batch 长度/lens[0] 全长,短样本会多解到 9 帧,与单独 5 帧参照必不等)。
     ref0 = tiny_model.greedy_decode(feats[:1], torch.ones(1, 41))
     ref1 = tiny_model.greedy_decode(feats[1:2, :25], torch.ones(1, 25))
     assert hyps[0] == ref0[0]
     assert hyps[1] == ref1[0]
+
+
+def test_greedy_decode_multi_emission_and_cap(tiny_model, monkeypatch):
+    """标准 transducer greedy 的算法钉死(不需训练):脚本化 joiner.forward 直接喂
+    argmax,验证(a)同帧 emit-until-blank 连发多 token 再前进,(b)一帧永不出 blank
+    时恰好发 max_sym_per_frame 个后前进(安全帽生效)。杀 msf=1 死灰复燃的 mutant。"""
+    blank, V = TINY["blank_id"], TINY["vocab_size"]
+
+    def enc(length):
+        return ((length - 7) // 2 + 1) // 2
+
+    # (a) 2 帧输入(L=15 → enc=2)。按 joiner 调用序脚本:frame0 连发 [3,5] 再出 blank
+    # 前进,frame1 首调用即 blank 前进。期望 emit [3,5],且恰 4 次 joiner 调用(钉前进)。
+    assert enc(15) == 2
+    script = [3, 5, blank]
+    calls = {"n": 0}
+
+    def scripted(encoder_out, decoder_out, project_input=True):
+        i = calls["n"]
+        calls["n"] += 1
+        tok = script[i] if i < len(script) else blank
+        logit = torch.full((1, 1, 1, V), -9.0)
+        logit[0, 0, 0, tok] = 9.0
+        return logit
+
+    monkeypatch.setattr(tiny_model.joiner, "forward", scripted)
+    hyps = tiny_model.greedy_decode(torch.randn(1, 15, 80), torch.ones(1, 15))
+    assert hyps == [[3, 5]]
+    assert calls["n"] == 4  # frame0: 3,5,blank(3 次) + frame1: blank(1 次)
+    monkeypatch.undo()
+
+    # (b) 1 帧输入(L=9 → enc=1),joiner 恒发非 blank(token 3)。cap=4 → 该帧恰发 4
+    # 个后前进(无更多帧即结束);joiner 恰调 4 次(n_emit<cap 才调用,不会有第 5 次)。
+    assert enc(9) == 1
+    calls2 = {"n": 0}
+
+    def always_nonblank(encoder_out, decoder_out, project_input=True):
+        calls2["n"] += 1
+        logit = torch.full((1, 1, 1, V), -9.0)
+        logit[0, 0, 0, 3] = 9.0
+        return logit
+
+    monkeypatch.setattr(tiny_model.joiner, "forward", always_nonblank)
+    hyps2 = tiny_model.greedy_decode(
+        torch.randn(1, 9, 80), torch.ones(1, 9), max_sym_per_frame=4
+    )
+    assert hyps2 == [[3, 3, 3, 3]]
+    assert calls2["n"] == 4  # 恰 cap 次,安全帽生效
 
 
 def test_checkpoint_roundtrip(tmp_path, tiny_model):
