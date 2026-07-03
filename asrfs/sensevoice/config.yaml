@@ -1,0 +1,34 @@
+run_name: sensevoice_mini100_fp32
+
+data:
+  n_train: 100
+  n_eval: 20
+  max_audio_seconds: 30.0 # full mode 过滤
+
+training:
+  learning_rate: 3.0e-4
+  warmup_steps: 50
+  max_steps: 300
+  per_device_train_batch_size: 8
+  gradient_accumulation_steps: 1
+  logging_steps: 10
+  eval_steps: 100
+  seed: 42
+
+smoke:
+  overfit1_steps: 500  # 保守初值;harness 标定后按 ceil(step_below_0.1*1.2/10)*10 钉死
+  overfit1_lr: 3.0e-4
+  mini100_steps: 250   # 20 epoch 等效:100*20/(8*1)
+  mini100_lr: 3.0e-4
+
+model:
+  hidden_size: 384
+  num_hidden_layers: 16
+  num_attention_heads: 4
+  intermediate_size: 1536
+  fsmn_kernel_size: 11
+  sanm_shift: 0
+  lfr_m: 7
+  lfr_n: 6
+  num_mel_bins: 80
+  dropout: 0.0
