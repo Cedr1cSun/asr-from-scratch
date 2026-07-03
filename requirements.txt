@@ -1,4 +1,5 @@
 torch
+torchaudio>=2.11  # x_asr rnnt_loss;与 torch 同 CUDA 通道装
 transformers
 datasets[audio]
 evaluate
