@@ -23,7 +23,7 @@ data:
   max_audio_seconds: 30.0 # full mode 过滤:whisper 30s 感受野
 
 smoke:
-  overfit1_steps: 300
+  overfit1_steps: 60   # 标定:Trainer 化 bs4 首次 loss<0.1 于 step 49(golden 手写循环 42,比值 1.17 在带内);ceil(49*1.2/10)*10
   overfit1_lr: 3.0e-4
   mini100_steps: 250   # 20 epoch 等效:20 * 100 / (2 * 4)
   mini100_lr: 1.0e-4

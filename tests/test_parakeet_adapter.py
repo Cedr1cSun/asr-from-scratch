@@ -64,7 +64,7 @@ def test_config_yaml_harness_keys():
     assert t["seed"] == 42
     assert cfg["data"]["n_train"] == 100 and cfg["data"]["n_eval"] == 20
     s = cfg["smoke"]
-    assert s["overfit1_steps"] == 500
+    assert s["overfit1_steps"] == 190  # B19 标定值:Trainer 化 step_below_0.1=155,ceil(155*1.2/10)*10
     assert s["overfit1_lr"] == pytest.approx(3.0e-4)
     assert s["mini100_steps"] == 250
     assert s["mini100_lr"] == pytest.approx(3.0e-4)

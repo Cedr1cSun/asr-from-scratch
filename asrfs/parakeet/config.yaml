@@ -16,7 +16,7 @@ training:
   seed: 42
 
 smoke:
-  overfit1_steps: 500
+  overfit1_steps: 190  # 标定:Trainer 化 bs4 首次 loss<0.1 于 step 155(golden 手写循环 153,比值 1.01 在带内);ceil(155*1.2/10)*10
   overfit1_lr: 3.0e-4
   mini100_steps: 250   # 20 epoch 等效:100*20/(8*1)
   mini100_lr: 3.0e-4
