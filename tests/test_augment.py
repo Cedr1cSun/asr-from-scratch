@@ -123,7 +123,7 @@ def test_transform_batch_and_log(caplog):
         "id": ["a", "b"],
         "text": ["x", "y"],
     }
-    with caplog.at_level("INFO", logger="asrfs.common.augment"):
+    with caplog.at_level("WARNING", logger="asrfs.common.augment"):
         out = tf(batch)
     assert any("SpecAugment active" in r.message for r in caplog.records)
     assert len(out["input_features"]) == 2

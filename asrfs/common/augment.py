@@ -87,7 +87,7 @@ def build_spec_augment_transform(aug_cfg: dict, rng: np.random.Generator | None 
 
     def transform(batch: dict) -> dict:
         if not state["logged"]:
-            logger.info("SpecAugment active: %s", params)
+            logger.warning("SpecAugment active: %s", params)
             state["logged"] = True
         out_feats = []
         for feat, length in zip(batch["input_features"], batch["length"]):
