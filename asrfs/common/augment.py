@@ -44,7 +44,7 @@ def spec_augment_single(
 ) -> np.ndarray:
     """单条特征增广;返回新数组,不改入参。轴向由 params.time_axis 指定。"""
     if rng.random() > params.p:
-        return feat
+        return feat.copy()
     out = feat.copy()
     tf = out if params.time_axis == 0 else out.T  # (T, F) 视图,写视图即写 out
     t_real = real_frames(length_samples, tf.shape[0])

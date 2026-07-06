@@ -90,12 +90,12 @@ def test_time_mask_budget_respected():
 
 
 def test_freq_mask_count_and_width():
-    # 只留 freq mask:被整列改动的列构成 ≤2 个连续区段,每段宽 ≤26(integers(0,27) 高端开)
+    # 只留 freq mask:任意行被改动的列构成 ≤2 个连续区段,每段宽 ≤26(integers(0,27) 高端开)
     rng = np.random.default_rng(6)
     feat = np.linspace(0, 10, 500 * 80, dtype=np.float16).reshape(500, 80)
     p = _params(p=1.0, num_frame_masks=0)
     out = spec_augment_single(feat, p, length_samples=32000, rng=rng)
-    changed_cols = np.where((out[:201] != feat[:201]).all(axis=0))[0]
+    changed_cols = np.where((out[:201] != feat[:201]).any(axis=0))[0]
     assert changed_cols.size > 0
     # 数连续区段
     segments = int((np.diff(changed_cols) > 1).sum()) + 1
