@@ -11,6 +11,7 @@ import 本模块。与 lhotse.dataset.signal_transforms.SpecAugment 的对齐与
 """
 
 import logging
+import os
 from dataclasses import dataclass
 
 import numpy as np
@@ -79,16 +80,25 @@ def spec_augment_single(
 def build_spec_augment_transform(aug_cfg: dict, rng: np.random.Generator | None = None):
     """给 datasets.set_transform 用的 batch transform 工厂(spec §1)。
 
-    rng 参数仅测试注入用;生产路径每个 dataloader worker 进程各持一个
-    default_rng(OS 熵种子),互不相关。
+    rng 按【进程】惰性初始化:不在主进程建 Generator(那样 fork 出的 dataloader
+    worker 会逐位复制同一状态,导致各 worker mask 流相同且逐 epoch 重放)。每个
+    进程首次调用 transform 时各自取种 —— 注入的 rng 只在建工厂的那个进程沿用
+    (保测试确定性),fork 出的 worker 一律用 OS 熵新种,互相独立。
     """
     params = SpecAugmentParams(**dict(aug_cfg["spec_augment"]))
-    state = {"rng": rng or np.random.default_rng(), "logged": False}
+    state = {"pid": None, "rng": None, "injected": rng, "logged_pid": None}
 
     def transform(batch: dict) -> dict:
-        if not state["logged"]:
-            logger.warning("SpecAugment active: %s", params)
-            state["logged"] = True
+        pid = os.getpid()
+        if state["pid"] != pid:
+            # 当前进程首次进来:主进程(建工厂的那个)且给了注入 rng → 用注入的;
+            # 否则(fork worker,或没注入)→ OS 熵新种,各进程独立。
+            use_injected = state["injected"] is not None and state["pid"] is None
+            state["rng"] = state["injected"] if use_injected else np.random.default_rng()
+            state["pid"] = pid
+        if state["logged_pid"] != pid:
+            logger.warning("SpecAugment active (pid=%s): %s", pid, params)
+            state["logged_pid"] = pid
         out_feats = []
         for feat, length in zip(batch["input_features"], batch["length"]):
             arr = np.asarray(feat, dtype=np.float16)

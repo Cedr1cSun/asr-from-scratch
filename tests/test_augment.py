@@ -130,3 +130,29 @@ def test_transform_batch_and_log(caplog):
     assert np.asarray(out["input_features"][0]).dtype == np.float16
     # 非特征列原样带回
     assert out["labels"] == [[1, 2], [3]] and out["id"] == ["a", "b"]
+
+
+def test_transform_rng_independent_across_pids(monkeypatch):
+    # 模拟两个不同进程(getpid 返回不同值)→ 各自新种,mask 流不同
+    import asrfs.common.augment as aug
+    cfg = {"spec_augment": {**AUG_CFG["spec_augment"], "p": 1.0}}
+    feat = [np.linspace(0, 10, 500 * 80, dtype=np.float16).reshape(500, 80).tolist()]
+    tf = aug.build_spec_augment_transform(cfg)  # 无注入 → 每进程 OS 熵
+
+    monkeypatch.setattr(aug.os, "getpid", lambda: 1001)
+    out_a = np.asarray(tf({"input_features": list(feat), "length": [32000]})["input_features"][0])
+    monkeypatch.setattr(aug.os, "getpid", lambda: 2002)
+    out_b = np.asarray(tf({"input_features": list(feat), "length": [32000]})["input_features"][0])
+    assert not np.array_equal(out_a, out_b)  # 两"进程"独立取种 → 不同
+
+
+def test_transform_injected_rng_deterministic_same_pid(monkeypatch):
+    import asrfs.common.augment as aug
+    cfg = {"spec_augment": {**AUG_CFG["spec_augment"], "p": 1.0}}
+    feat = [np.full((500, 80), 7.0, dtype=np.float16).tolist()]
+    monkeypatch.setattr(aug.os, "getpid", lambda: 4242)
+    tf1 = aug.build_spec_augment_transform(cfg, rng=np.random.default_rng(0))
+    tf2 = aug.build_spec_augment_transform(cfg, rng=np.random.default_rng(0))
+    a = np.asarray(tf1({"input_features": list(feat), "length": [32000]})["input_features"][0])
+    b = np.asarray(tf2({"input_features": list(feat), "length": [32000]})["input_features"][0])
+    np.testing.assert_array_equal(a, b)  # 同注入种子 + 同 pid → 逐位相同
