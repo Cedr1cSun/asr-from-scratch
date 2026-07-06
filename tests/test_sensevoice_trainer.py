@@ -56,3 +56,34 @@ def test_build_trainer_unknown_override_raises(tmp_path, tiny_model):
             CFG, tiny_model, FakeBundle(), None, None, lambda b: b,
             overrides={"definitely_not_a_field": 1},
         )
+
+
+def test_augment_cfg_disables_group_by_length(tmp_path, tiny_model):
+    # cfg 带 augment 段(full 模式标志)+ overrides 注入长度分桶采样 → 必须被剥离,
+    # 否则 LengthGroupedSampler 每 epoch 扫 length 列会顺带触发 train split 的
+    # set_transform 增广再丢弃(见 asrfs/common/full_data.py load_full_dataset)。
+    cfg = {**CFG, "run_name": "sv_full_test", "augment": {"spec_augment": {"time_axis": 0, "p": 0.9}}}
+    trainer = build_trainer(
+        cfg, tiny_model, FakeBundle(),
+        train_ds=None, eval_ds=None, collator=lambda b: b,
+        overrides={
+            "output_dir": str(tmp_path),
+            "train_sampling_strategy": "group_by_length",
+            "length_column_name": "length",
+        },
+    )
+    assert getattr(trainer.args, "train_sampling_strategy", None) != "group_by_length"
+
+
+def test_no_augment_cfg_keeps_group_by_length(tmp_path, tiny_model):
+    # 反向:cfg 无 augment 段(非 full 模式)→ overrides 的长度分桶原样保留。
+    trainer = build_trainer(
+        {**CFG, "run_name": "sv_no_aug_test"}, tiny_model, FakeBundle(),
+        train_ds=None, eval_ds=None, collator=lambda b: b,
+        overrides={
+            "output_dir": str(tmp_path),
+            "train_sampling_strategy": "group_by_length",
+            "length_column_name": "length",
+        },
+    )
+    assert trainer.args.train_sampling_strategy == "group_by_length"

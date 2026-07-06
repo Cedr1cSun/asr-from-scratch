@@ -93,6 +93,28 @@ def test_predict_with_generate_off_disables_wer_metrics():
     assert args.predict_with_generate is False
 
 
+def test_augment_cfg_disables_group_by_length():
+    # cfg 带 augment 段(full 模式标志)+ overrides 注入长度分桶采样 → 必须被剥离
+    # (见 asrfs/common/full_data.py load_full_dataset 的 augment-and-discard 问题)。
+    cfg = {**_cfg(), "augment": {"spec_augment": {"time_axis": 1, "p": 0.9}}}
+    args = _build_training_args(
+        cfg,
+        {"train_sampling_strategy": "group_by_length", "length_column_name": "length"},
+        has_eval=False,
+    )
+    assert getattr(args, "train_sampling_strategy", None) != "group_by_length"
+
+
+def test_no_augment_cfg_keeps_group_by_length():
+    # 反向:cfg 无 augment 段 → overrides 的长度分桶原样保留。
+    args = _build_training_args(
+        _cfg(),
+        {"train_sampling_strategy": "group_by_length", "length_column_name": "length"},
+        has_eval=False,
+    )
+    assert args.train_sampling_strategy == "group_by_length"
+
+
 # ── checkpoint 往返(tiny 配置,CPU-fast)───────────────────────────────
 
 def test_checkpoint_roundtrip_tiny(tmp_path):

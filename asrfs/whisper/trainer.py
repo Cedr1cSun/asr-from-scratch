@@ -36,6 +36,12 @@ def _build_training_args(cfg: dict, overrides: dict, has_eval: bool) -> Seq2SeqT
             f"unknown Seq2SeqTrainingArguments field(s): {unknown}; "
             f"overrides must be legal TrainingArguments fields"
         )
+    # full+augment 下禁用长度分桶采样:LengthGroupedSampler 每 epoch 扫 length 列会
+    # 顺带触发 train split 的 set_transform 增广再丢弃(augment-and-discard,whisper
+    # 约 80h/训练纯 CPU 空转)。退随机采样;set_transform 仍在真实 train batch 上正常增广。
+    if cfg.get("augment"):
+        merged.pop("train_sampling_strategy", None)
+        merged.pop("length_column_name", None)
     merged["remove_unused_columns"] = False
     return Seq2SeqTrainingArguments(**merged)
 

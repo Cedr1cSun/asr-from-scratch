@@ -156,6 +156,36 @@ def test_eden_params_from_cfg(tiny_trainer_factory):
     assert sched.lr_batches == 1234 and sched.lr_epochs == 1.5
 
 
+def test_augment_cfg_disables_group_by_length(tmp_path, tiny_model):
+    # cfg 带 augment 段(full 模式标志)+ overrides 注入长度分桶采样 → 必须被剥离
+    # (见 asrfs/common/full_data.py load_full_dataset 的 augment-and-discard 问题)。
+    cfg = {**CFG, "run_name": "xa_full_test", "augment": {"spec_augment": {"time_axis": 0, "p": 0.9}}}
+    trainer = build_trainer(
+        cfg, tiny_model, FakeBundle(),
+        train_ds=None, eval_ds=None, collator=lambda b: b,
+        overrides={
+            "output_dir": str(tmp_path),
+            "train_sampling_strategy": "group_by_length",
+            "length_column_name": "length",
+        },
+    )
+    assert getattr(trainer.args, "train_sampling_strategy", None) != "group_by_length"
+
+
+def test_no_augment_cfg_keeps_group_by_length(tmp_path, tiny_model):
+    # 反向:cfg 无 augment 段 → overrides 的长度分桶原样保留。
+    trainer = build_trainer(
+        {**CFG, "run_name": "xa_no_aug_test"}, tiny_model, FakeBundle(),
+        train_ds=None, eval_ds=None, collator=lambda b: b,
+        overrides={
+            "output_dir": str(tmp_path),
+            "train_sampling_strategy": "group_by_length",
+            "length_column_name": "length",
+        },
+    )
+    assert trainer.args.train_sampling_strategy == "group_by_length"
+
+
 def test_on_epoch_end_advances_eden_epoch(tmp_path, tiny_model):
     """F6:Eden 的 epoch 衰减靠每 epoch 末 step_epoch() 驱动;HF Trainer 只调
     step()(→step_batch),epoch 因子会永远停在 0。BatchCountCallback.on_epoch_end
