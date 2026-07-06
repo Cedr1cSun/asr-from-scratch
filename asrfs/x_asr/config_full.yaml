@@ -1,0 +1,31 @@
+run_name: x_asr_full_960h
+
+data:
+  n_train: 100
+  n_eval: 20
+  max_audio_seconds: 30.0 # full mode 过滤
+
+training:
+  learning_rate: 0.045   # ScaledAdam base_lr(icefall recipe 值;非 AdamW 可比)
+  warmup_steps: 50       # 占位:Eden 自带 warmup(warmup_batches=500),此键不驱动 Eden
+  max_steps: 66000       # 30 epoch @ 有效 batch 128(icefall num_epochs 30;集群按 manifest rows_after 修正)
+  per_device_train_batch_size: 16  # 参考值;集群探测后与 accum 联动改,乘积恒 128×卡数
+  gradient_accumulation_steps: 8
+  logging_steps: 50
+  eval_steps: 1000
+  save_steps: 1000
+  seed: 42
+  lr_batches: 7500       # Eden(icefall recipe 值;Task 4 起从 cfg 读)
+  lr_epochs: 3.5         # Eden(icefall recipe 值)
+
+model: {}  # 结构走 model.py SMALL_MODEL 缺省;与 config.yaml 同源(hash 等式强制)
+
+augment:
+  spec_augment:
+    time_axis: 0          # x_asr 特征 (T, 80)
+    num_feature_masks: 2
+    features_mask_size: 27
+    num_frame_masks: 10
+    frames_mask_size: 100
+    max_frames_mask_fraction: 0.15
+    p: 0.9

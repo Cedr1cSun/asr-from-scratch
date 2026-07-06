@@ -1,0 +1,36 @@
+run_name: whisper_full_960h
+
+# model 段:params_hash 覆盖键与 config.yaml 必须同值(tests/test_config_full.py 强制)
+model:
+  size: medium
+  apply_spec_augment: false      # 永久 false:增广走 dataset transform(spec §1)
+  gradient_checkpointing: true
+  generation_max_length: 225
+
+training:
+  learning_rate: 1.5e-4          # medium 764M 保守值(spec §4)
+  warmup_steps: 4000
+  max_steps: 33000               # 30 epoch @ 有效 batch 256(281k utt;集群按 manifest rows_after 修正)
+  per_device_train_batch_size: 8 # 参考值;集群探测后与 accum 联动改,乘积恒 256×卡数
+  gradient_accumulation_steps: 32
+  logging_steps: 50
+  eval_steps: 1000
+  save_steps: 1000
+  seed: 42
+  predict_with_generate: false   # 训练中 eval 只算 loss;WER 训后测(spec §4)
+
+data:
+  n_train: 100
+  n_eval: 20
+  max_label_len: 448      # full mode 过滤:whisper decoder max_target_positions
+  max_audio_seconds: 30.0 # full mode 过滤:whisper 30s 感受野
+
+augment:
+  spec_augment:
+    time_axis: 1          # whisper 特征 (80, 3000) F×T
+    num_feature_masks: 2
+    features_mask_size: 27
+    num_frame_masks: 10
+    frames_mask_size: 100
+    max_frames_mask_fraction: 0.15
+    p: 0.9

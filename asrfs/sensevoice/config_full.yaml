@@ -1,0 +1,39 @@
+run_name: sensevoice_full_960h
+
+data:
+  n_train: 100
+  n_eval: 20
+  max_audio_seconds: 30.0 # full mode 过滤
+
+training:
+  learning_rate: 3.0e-4    # mini100 实证值(spec §4)
+  warmup_steps: 2000
+  max_steps: 110000        # 50 epoch @ 有效 batch 128(281k utt;集群按 manifest rows_after 修正)
+  per_device_train_batch_size: 16  # 参考值;集群探测后与 accum 联动改,乘积恒 128×卡数
+  gradient_accumulation_steps: 8
+  logging_steps: 50
+  eval_steps: 1000
+  save_steps: 1000
+  seed: 42
+
+model:
+  hidden_size: 384
+  num_hidden_layers: 16
+  num_attention_heads: 4
+  intermediate_size: 1536
+  fsmn_kernel_size: 11
+  sanm_shift: 0
+  lfr_m: 7
+  lfr_n: 6
+  num_mel_bins: 80
+  dropout: 0.0
+
+augment:
+  spec_augment:
+    time_axis: 0          # sensevoice 特征 (T, 80);LFR 在模型内,预计算特征是 10ms 帧
+    num_feature_masks: 2
+    features_mask_size: 27
+    num_frame_masks: 10
+    frames_mask_size: 100
+    max_frames_mask_fraction: 0.15
+    p: 0.9
