@@ -253,9 +253,25 @@ def test_prepare_rejects_speed_perturb(data_root):
         full_data.prepare_full_dataset(cfg, FakeAdapter, subset_head=1)
 
 
-def test_load_full_dataset_augments_train_only(data_root):
+def test_load_full_dataset_rejects_subset_features(data_root, monkeypatch):
+    monkeypatch.delenv("ASRFS_ALLOW_SUBSET", raising=False)
+    full_data.prepare_full_dataset(CFG, FakeAdapter, subset_head=2)  # 写 subset manifest
+    with pytest.raises(RuntimeError, match="subset_head"):
+        full_data.load_full_dataset(CFG, model_name="faketest")
+
+
+def test_load_full_dataset_subset_allowed_via_env(data_root, monkeypatch):
+    monkeypatch.setenv("ASRFS_ALLOW_SUBSET", "1")
+    full_data.prepare_full_dataset(CFG, FakeAdapter, subset_head=2)
+    train, eval_ds = full_data.load_full_dataset(CFG, model_name="faketest")
+    assert len(train) > 0 and len(eval_ds) > 0
+
+
+def test_load_full_dataset_augments_train_only(data_root, monkeypatch):
     # 门控双向验证走结构断言(spec §5):FakeAdapter 特征是常值,mean 填充对常值
     # 是 no-op,值变异断言不可靠;行为正确性由 test_augment.py 的种子化单测负责。
+    # 本测试用 subset_head 预备特征做子集验证,须显式放行新的 subset 守卫(F3)。
+    monkeypatch.setenv("ASRFS_ALLOW_SUBSET", "1")
     full_data.prepare_full_dataset(CFG, FakeAdapter, subset_head=2)
     plain_train, plain_eval = full_data.load_full_dataset(CFG, model_name="faketest")
     # 反向:无 augment 段 → 两个 split 都无 custom transform

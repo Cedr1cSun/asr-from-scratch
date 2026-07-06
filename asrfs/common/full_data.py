@@ -14,6 +14,7 @@ import hashlib
 import importlib
 import io
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -213,6 +214,14 @@ def load_full_dataset(cfg: dict, model_name: str | None = None) -> tuple:
             f"stale full-mode features for {model_name}: manifest params_hash "
             f"{manifest['params_hash'][:12]}.. != cfg {expected[:12]}..; "
             f"re-run prepare_full_dataset"
+        )
+    if manifest.get("subset_head") is not None and os.environ.get("ASRFS_ALLOW_SUBSET") != "1":
+        raise RuntimeError(
+            f"{model_name}: full features were precomputed with subset_head="
+            f"{manifest['subset_head']} (partial data), not the full 960h set. "
+            f"Training on these would silently produce a wrong baseline. "
+            f"Re-run prepare_full_dataset without --subset-head, or set "
+            f"ASRFS_ALLOW_SUBSET=1 to intentionally train on the subset (e2e only)."
         )
     train = concatenate_datasets(
         [load_from_disk(str(root / name)) for name in TRAIN_SPLIT_NAMES]
