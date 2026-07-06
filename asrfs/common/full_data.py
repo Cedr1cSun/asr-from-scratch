@@ -20,6 +20,8 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
+import torch
+import torchaudio.functional as AF
 import yaml
 from datasets import (
     Audio,
@@ -80,9 +82,9 @@ def params_hash(cfg: dict) -> str:
     避免调训练超参就把 60 GB 特征判失效;model.gradient_checkpointing/
     generation_max_length/apply_spec_augment 同理(见 _NON_FEATURE_MODEL_KEYS)。
     augment 段是训练期特征增广(datasets set_transform 挂接,惰性、非预计算),不
-    改变磁盘上的特征字节,同样排除;data.speed_perturb 预留给未来预计算期变速增广,
-    一旦落地会改变特征字节,故纳入 hash(缺键按显式 [1.0] 归一化,当前尚未实现,
-    见 prepare_full_dataset 开头的 NotImplementedError 守卫)。
+    改变磁盘上的特征字节,同样排除;data.speed_perturb 是预计算期变速增广(train
+    split 三态 0.9/1.0/1.1,见 prepare_full_dataset/_perturb_speed),改变特征字节,
+    故纳入 hash(缺键按显式 [1.0] 归一化)。
     """
     data_cfg = cfg.get("data") or {}
     model_section = {k: v for k, v in cfg.items() if k not in _NON_FEATURE_CFG_KEYS}
@@ -124,32 +126,37 @@ def _stream_split(config: str, split: str, subset_head: int | None = None):
         }
 
 
-def _prepared_rows(raw_rows, adapter, processor, cfg, counters):
+def _perturb_speed(audio: np.ndarray, sr: int, factor: float) -> np.ndarray:
+    """torchaudio sox-speed 语义(变速变调);factor=1.0 恒等返回原 array。
+    0.9 → 变慢变长,1.1 → 变快变短(icefall/lhotse 三态增广)。"""
+    if factor == 1.0:
+        return audio
+    wav = torch.from_numpy(np.asarray(audio, dtype=np.float32))
+    out, _ = AF.speed(wav, orig_freq=sr, factor=factor)
+    return out.numpy()
+
+
+def _prepared_rows(raw_rows, adapter, processor, cfg, counters, speed_factors):
     data_cfg = cfg.get("data") or {}
     max_audio_s = float(data_cfg.get("max_audio_seconds", DEFAULT_MAX_AUDIO_SECONDS))
     max_label_len = data_cfg.get("max_label_len")
     for row in raw_rows:
         counters["rows_before"] += 1
-        if len(row["audio_array"]) / row["sampling_rate"] > max_audio_s:
-            continue
-        example = adapter.make_example(
-            processor, row["audio_array"], row["sampling_rate"], row["text"]
-        )
-        if max_label_len is not None and len(example["labels"]) > int(max_label_len):
-            continue
-        example["input_features"] = np.asarray(example["input_features"], dtype=np.float16)
-        example["length"] = len(row["audio_array"])  # 供全量 Trainer group_by_length 分桶
-        counters["rows_after"] += 1
-        yield example
+        for factor in speed_factors:
+            audio = _perturb_speed(row["audio_array"], row["sampling_rate"], factor)
+            if len(audio) / row["sampling_rate"] > max_audio_s:  # 变速后时长过滤
+                continue
+            example = adapter.make_example(processor, audio, row["sampling_rate"], row["text"])
+            if max_label_len is not None and len(example["labels"]) > int(max_label_len):
+                continue
+            example["input_features"] = np.asarray(example["input_features"], dtype=np.float16)
+            example["length"] = len(audio)  # 变速后采样点数
+            counters["rows_after"] += 1
+            yield example
 
 
 def prepare_full_dataset(cfg: dict, processor_adapter, subset_head: int | None = None) -> dict:
-    sp = _normalized_speed_perturb(cfg.get("data") or {})
-    if sp != list(DEFAULT_SPEED_PERTURB):
-        raise NotImplementedError(
-            f"data.speed_perturb={sp} is reserved but not implemented (spec 2026-07-06 §2)"
-        )
-
+    speed_factors = _normalized_speed_perturb(cfg.get("data") or {})
     adapter = processor_adapter
     processor = adapter.build_processor(cfg)
     out_root = full_dir(model_name_of(adapter))
@@ -164,14 +171,15 @@ def prepare_full_dataset(cfg: dict, processor_adapter, subset_head: int | None =
     manifest_splits = {}
     for config, split, split_name in ALL_SPLITS:
         counters = {"rows_before": 0, "rows_after": 0}
+        factors = speed_factors if split_name in TRAIN_SPLIT_NAMES else [1.0]
         split_dir = out_root / split_name
         work_dir = out_root / f".work_{split_name}"
         if work_dir.exists():
             shutil.rmtree(work_dir)
 
-        def gen():
+        def gen(factors=factors):  # 默认参数绑定,避免闭包 late-binding
             yield from _prepared_rows(
-                _stream_split(config, split, subset_head), adapter, processor, cfg, counters
+                _stream_split(config, split, subset_head), adapter, processor, cfg, counters, factors
             )
 
         # from_generator 增量写 arrow,内存不随 split 体量增长(960h 单 split 数十 GB)

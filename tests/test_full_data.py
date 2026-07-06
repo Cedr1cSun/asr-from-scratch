@@ -247,10 +247,25 @@ def test_params_hash_ignores_augment_section():
     assert full_data.params_hash(aug) == base
 
 
-def test_prepare_rejects_speed_perturb(data_root):
+def test_prepare_speed_perturb_triples_train_rows(data_root):
+    # FakeAdapter 每 split 1 行原始音频;speed_perturb 3 态 → train split rows_after≈3、eval=1
     cfg = {**CFG, "data": {**(CFG.get("data") or {}), "speed_perturb": [0.9, 1.0, 1.1]}}
-    with pytest.raises(NotImplementedError):
-        full_data.prepare_full_dataset(cfg, FakeAdapter, subset_head=1)
+    manifest = full_data.prepare_full_dataset(cfg, FakeAdapter, subset_head=1)
+    splits = manifest["splits"]
+    # TRAIN_SPLIT_NAMES 每个 rows_after 应为 3(1 原始 ×3 factor,均通过 FakeAdapter 过滤)
+    for name in full_data.TRAIN_SPLIT_NAMES:
+        assert splits[name]["rows_after"] == 3, (name, splits[name])
+    # eval split 不变速 → 1
+    assert splits[full_data.EVAL_SPLIT_NAME]["rows_after"] == 1
+
+
+def test_perturb_speed_length_relation():
+    audio = np.linspace(-1, 1, 16000, dtype=np.float32)
+    slow = full_data._perturb_speed(audio, 16000, 0.9)
+    fast = full_data._perturb_speed(audio, 16000, 1.1)
+    same = full_data._perturb_speed(audio, 16000, 1.0)
+    assert len(slow) > 16000 > len(fast)          # 0.9 变慢变长,1.1 变快变短
+    assert same is audio or np.array_equal(same, audio)  # 1.0 恒等
 
 
 def test_load_full_dataset_rejects_subset_features(data_root, monkeypatch):

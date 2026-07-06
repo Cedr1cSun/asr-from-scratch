@@ -28,6 +28,7 @@ data:
   n_eval: 20
   max_label_len: 448      # full mode 过滤:whisper decoder max_target_positions
   max_audio_seconds: 30.0 # full mode 过滤:whisper 30s 感受野
+  speed_perturb: [0.9, 1.0, 1.1]  # full 预计算三态变速增广;smoke 不读,仅保 hash 等式两文件同值
 
 augment:
   spec_augment:

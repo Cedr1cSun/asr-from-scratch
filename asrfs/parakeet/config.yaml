@@ -4,6 +4,7 @@ data:
   n_train: 100
   n_eval: 20
   max_audio_seconds: 30.0 # full mode 过滤
+  speed_perturb: [0.9, 1.0, 1.1]  # full 预计算三态变速增广;smoke 不读,仅保 hash 等式两文件同值
 
 training:
   learning_rate: 3.0e-4
