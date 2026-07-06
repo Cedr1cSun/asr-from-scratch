@@ -84,6 +84,11 @@ def build_spec_augment_transform(aug_cfg: dict, rng: np.random.Generator | None 
     worker 会逐位复制同一状态,导致各 worker mask 流相同且逐 epoch 重放)。每个
     进程首次调用 transform 时各自取种 —— 注入的 rng 只在建工厂的那个进程沿用
     (保测试确定性),fork 出的 worker 一律用 OS 熵新种,互相独立。
+
+    注入 rng 的 worker 独立性仅在"建工厂的进程先调用过一次 transform 再 fork"时
+    成立;若注入了 rng 却在任何调用前就 fork,各子进程首次调用会各自命中"首次"
+    分支并复用同一注入 Generator → 流相同。生产路径从不注入 rng(唯一调用点
+    full_data.load_full_dataset 不传 rng),该边界不可达;注入仅用于单测。
     """
     params = SpecAugmentParams(**dict(aug_cfg["spec_augment"]))
     state = {"pid": None, "rng": None, "injected": rng, "logged_pid": None}
