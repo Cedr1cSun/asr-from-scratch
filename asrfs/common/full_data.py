@@ -267,3 +267,21 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    # main() writes every split + manifest.json synchronously and returns only on
+    # success; the process is functionally complete here. Python's own interpreter
+    # finalization then aborts with "Fatal Python error: PyGILState_Release: thread
+    # state ... must be current when releasing" (SIGABRT / exit 134). It is a
+    # teardown artifact of a background decode thread (HF datasets streaming +
+    # soundfile/torchcodec) not joined before finalize — reproduces even with
+    # speed_perturb absent and torch/torchaudio never imported, so it pre-exists
+    # this branch and is environment-level (torch 2.12 / datasets 5.0). It corrupts
+    # nothing: the crash is strictly after main() returns, manifest is already on
+    # disk. But a cluster job runner reads the non-zero exit as a precompute
+    # failure, so flush stdout/stderr and hard-exit 0 to report the real outcome
+    # and skip the crashing finalization. A genuine failure inside main() raises
+    # before this line, keeping a real non-zero exit.
+    import sys
+
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
