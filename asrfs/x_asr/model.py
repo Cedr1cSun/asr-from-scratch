@@ -7,8 +7,10 @@ RNN-T 接线(全笛卡尔 joint + torchaudio rnnt_loss)、greedy 解码、契约
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
+import sentencepiece as spm
 import torch
 import torchaudio
 from transformers import (
@@ -28,11 +30,32 @@ from asrfs.x_asr._vendor.zipformer import Zipformer2
 
 TOKENIZER_SOURCE = "nvidia/parakeet-ctc-0.6b"
 
+_BPE_MODEL = Path(__file__).resolve().parent / "bpe" / "librispeech_bpe500.model"
+
 LOSS_FAMILY = "rnnt"
-# LABEL_PAD_ID = blank = tokenizer.vocab_size(同 CTC 族;RNN-T 里 blank 兼任 SOS)。
+# LABEL_PAD_ID = blank = SentencePiece vocab_size(同 CTC 族;RNN-T 里 blank 兼任 SOS)。
 # 守卫:tests/test_xasr_adapter.py::test_label_pad_id_matches_tokenizer(slow)。
-LABEL_PAD_ID = 1024
+LABEL_PAD_ID = 500
 EXPECTED_FROZEN: set = set()
+
+
+class SpmTokenizer:
+    """SentencePiece 薄 wrapper,接口对齐 common/ctc.py 的现用法
+    (tokenizer(text)["input_ids"] / tokenizer.decode(ids))。"""
+
+    def __init__(self, model_path: Path = _BPE_MODEL):
+        self._sp = spm.SentencePieceProcessor(model_file=str(model_path))
+
+    @property
+    def vocab_size(self) -> int:
+        return self._sp.get_piece_size()  # 500
+
+    def __call__(self, text: str, add_special_tokens: bool = False) -> dict:
+        return {"input_ids": self._sp.encode(text, out_type=int)}
+
+    def decode(self, ids, skip_special_tokens: bool = True) -> str:
+        return self._sp.decode(list(ids))
+
 
 # Zipformer-S 缩小预设(spec §5;接口文档 §a 的 train.py 映射,cnn_module_kernel 取 argparse 缺省)
 SMALL_MODEL = dict(
@@ -60,8 +83,8 @@ class XASRConfig(PretrainedConfig):
 
     def __init__(
         self,
-        vocab_size=1025,
-        blank_id=1024,
+        vocab_size=501,
+        blank_id=500,
         num_mel_bins=80,
         downsampling_factor=(1, 2, 4, 8, 4, 2),
         num_encoder_layers=(2, 2, 2, 2, 2, 2),
@@ -79,7 +102,7 @@ class XASRConfig(PretrainedConfig):
         context_size=2,
         dropout=0.0,
         causal=False,
-        pad_token_id=1024,
+        pad_token_id=500,
         **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -282,8 +305,8 @@ class XASRForRNNT(PreTrainedModel):
                 self.train()
 
 
-def build_tokenizer() -> ParakeetTokenizerFast:
-    return ParakeetTokenizerFast.from_pretrained(TOKENIZER_SOURCE)
+def build_tokenizer() -> SpmTokenizer:
+    return SpmTokenizer()
 
 
 def build_feature_extractor() -> ParakeetFeatureExtractor:

@@ -71,5 +71,5 @@ def test_pinned_per_model_values():
     x_asr = importlib.import_module("asrfs.x_asr")
 
     assert x_asr.LOSS_FAMILY == "rnnt"
-    assert x_asr.LABEL_PAD_ID == 1024  # blank = ParakeetTokenizerFast.vocab_size
+    assert x_asr.LABEL_PAD_ID == 500  # blank = SentencePiece vocab_size (BPE-500)
     assert x_asr.EXPECTED_FROZEN == set()

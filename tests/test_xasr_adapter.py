@@ -72,7 +72,7 @@ def tiny_model():
 
 def test_constants():
     assert LOSS_FAMILY == "rnnt"
-    assert LABEL_PAD_ID == 1024
+    assert LABEL_PAD_ID == 500
     assert EXPECTED_FROZEN == set()
 
 

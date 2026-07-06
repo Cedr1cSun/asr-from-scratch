@@ -1,4 +1,4 @@
-"""x_asr 数据面:batch 面与 CTC 族完全一致(features/mask/labels-pad-1024),
+"""x_asr 数据面:batch 面与 CTC 族完全一致(features/mask/labels-pad-500),
 collator/smoke 数据集直接复用 asrfs/common/ctc.py;解码走 RNN-T greedy。"""
 
 from asrfs.common.ctc import CTCCollator, build_ctc_dataset, prepare_ctc_example

@@ -43,7 +43,7 @@ def tiny_model():
 
 def test_constants():
     assert LOSS_FAMILY == "rnnt"
-    assert LABEL_PAD_ID == 1024
+    assert LABEL_PAD_ID == 500
     assert EXPECTED_FROZEN == set()
 
 
@@ -233,15 +233,15 @@ def test_default_build_model_structure_and_init():
     assert rep["params_trainable"] == rep["params_total"]
     assert rep["frozen"] == set()
     # icefall 初始化非 0.02:_init_weights 必须是 no-op(押 fast-init 不重随机化由 roundtrip 测试管)
-    assert model.config.vocab_size == 1025 and model.config.blank_id == 1024
-    assert model.decoder.blank_id == 1024 and model.decoder.context_size == 2
-    assert model.joiner.output_linear.out_features == 1025
+    assert model.config.vocab_size == 501 and model.config.blank_id == 500
+    assert model.decoder.blank_id == 500 and model.decoder.context_size == 2
+    assert model.joiner.output_linear.out_features == 501
 
 
 def test_default_config_loss_forward():
     torch.manual_seed(0)
     model = build_model({}).train()
     feats = torch.randn(1, 41, 80)
-    labels = torch.tensor([[5, 17, 900]])
+    labels = torch.tensor([[5, 17, 490]])
     out = model(input_features=feats, attention_mask=torch.ones(1, 41), labels=labels)
     assert torch.isfinite(out.loss) and out.loss > 0

@@ -17,3 +17,13 @@ def test_bpe_roundtrip_lowercase():
     assert len(ids) > 0 and all(isinstance(i, int) for i in ids)
     # decode 复原(spm 归一化空格,比对去空格小写)
     assert sp.decode(ids).lower().replace(" ", "") == "thequickbrownfox"
+
+
+def test_spm_tokenizer_interface():
+    from asrfs.x_asr.model import build_tokenizer
+
+    tok = build_tokenizer()
+    assert tok.vocab_size == 500
+    ids = tok("the quick brown fox", add_special_tokens=False)["input_ids"]
+    assert len(ids) > 0
+    assert tok.decode(ids, skip_special_tokens=True).lower().replace(" ", "") == "thequickbrownfox"
