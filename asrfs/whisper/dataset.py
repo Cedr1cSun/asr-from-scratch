@@ -22,6 +22,10 @@ class WhisperCollator:
     def __call__(self, batch: list[dict]) -> dict:
         feature_rows = [{"input_features": ex["input_features"]} for ex in batch]
         out = self.processor.feature_extractor.pad(feature_rows, return_tensors="pt")
+        # full 模式磁盘缓存是 float16(full_data.py FEATURE_DTYPE);fp32 路径无
+        # autocast,须转回 float32 才能喂模型第一层 conv/layer_norm(对 smoke 路径
+        # 本就是 float32 的特征,.float() 是恒等操作)。
+        out["input_features"] = out["input_features"].float()
 
         label_rows = [{"input_ids": ex["labels"]} for ex in batch]
         labels_batch = self.processor.tokenizer.pad(label_rows, return_tensors="pt")

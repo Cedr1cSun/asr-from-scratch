@@ -2,6 +2,7 @@ import re
 
 import numpy as np
 import pytest
+import torch
 from datasets import Dataset
 
 import asrfs.whisper.dataset as wds
@@ -69,6 +70,26 @@ def test_collator_pads_and_strips_sot(processor):
     # 短句尾部按 LABEL_PAD_ID 填充(剥 SOT 后长度 = 原 labels 长度 - 1)
     short_len = len(exs[0]["labels"]) - 1
     assert (batch["labels"][0, short_len:] == LABEL_PAD_ID).all()
+
+
+def test_collator_upcasts_float16_input_features_to_float32(processor):
+    """full 模式磁盘特征缓存是 float16(asrfs/common/full_data.py FEATURE_DTYPE);
+    --precision fp32 训练路径没有 autocast,pad 后的 float16 张量喂进模型第一层
+    conv/layer_norm 会跟 float32 bias 类型不匹配报错。collator 必须把 padded
+    input_features 转回 float32(对 smoke 路径本就是 float32 的特征,.float() 是
+    恒等操作,无副作用)。"""
+    exs = [
+        make_example(processor, _fake_sample(0, "hi")["audio_array"], 16000, "hi"),
+        make_example(processor, _fake_sample(1, FAKE_TEXTS[1])["audio_array"], 16000, FAKE_TEXTS[1]),
+    ]
+    for ex in exs:
+        # 模拟磁盘缓存:预计算特征以 float16 落盘(见 full_data.py _prepared_rows)
+        ex["input_features"] = np.asarray(ex["input_features"], dtype=np.float16)
+
+    collator = build_collator({}, processor, _FakeModel())
+    batch = collator(exs)
+
+    assert batch["input_features"].dtype == torch.float32
 
 
 def test_build_dataset_overfit1(processor, monkeypatch):

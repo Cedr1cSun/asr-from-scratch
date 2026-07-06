@@ -44,6 +44,10 @@ class CTCCollator:
             return_tensors="pt",
             return_attention_mask=True,
         )
+        # full 模式磁盘缓存是 float16(full_data.py FEATURE_DTYPE);fp32 路径无
+        # autocast,须转回 float32 才能喂模型第一层 conv/layer_norm(对 smoke 路径
+        # 本就是 float32 的特征,.float() 是恒等操作)。
+        out["input_features"] = out["input_features"].float()
         max_len = max(len(ex["labels"]) for ex in batch)
         labels = torch.full((len(batch), max_len), self.pad_label_id, dtype=torch.long)
         for i, ex in enumerate(batch):
