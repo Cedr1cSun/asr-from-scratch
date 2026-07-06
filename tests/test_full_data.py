@@ -227,3 +227,48 @@ def test_build_dataset_full_delegates_to_load_full_dataset(monkeypatch, pkg_name
 
     assert out == ("train-sentinel", "eval-sentinel")
     assert seen["model_name"] == expected_model
+
+
+def test_params_hash_speed_perturb_missing_equals_default():
+    base = full_data.params_hash(CFG)
+    explicit = {**CFG, "data": {**(CFG.get("data") or {}), "speed_perturb": [1.0]}}
+    assert full_data.params_hash(explicit) == base
+
+
+def test_params_hash_speed_perturb_changes_hash():
+    base = full_data.params_hash(CFG)
+    sp = {**CFG, "data": {**(CFG.get("data") or {}), "speed_perturb": [0.9, 1.0, 1.1]}}
+    assert full_data.params_hash(sp) != base
+
+
+def test_params_hash_ignores_augment_section():
+    base = full_data.params_hash(CFG)
+    aug = {**CFG, "augment": {"spec_augment": {"time_axis": 0, "p": 0.9}}}
+    assert full_data.params_hash(aug) == base
+
+
+def test_prepare_rejects_speed_perturb(data_root):
+    cfg = {**CFG, "data": {**(CFG.get("data") or {}), "speed_perturb": [0.9, 1.0, 1.1]}}
+    with pytest.raises(NotImplementedError):
+        full_data.prepare_full_dataset(cfg, FakeAdapter, subset_head=1)
+
+
+def test_load_full_dataset_augments_train_only(data_root):
+    # 门控双向验证走结构断言(spec §5):FakeAdapter 特征是常值,mean 填充对常值
+    # 是 no-op,值变异断言不可靠;行为正确性由 test_augment.py 的种子化单测负责。
+    full_data.prepare_full_dataset(CFG, FakeAdapter, subset_head=2)
+    plain_train, plain_eval = full_data.load_full_dataset(CFG, model_name="faketest")
+    # 反向:无 augment 段 → 两个 split 都无 custom transform
+    assert plain_train.format["type"] != "custom"
+    assert plain_eval.format["type"] != "custom"
+
+    aug_cfg = {
+        **CFG,
+        "augment": {"spec_augment": {"time_axis": 0, "p": 1.0}},
+    }
+    train, eval_ds = full_data.load_full_dataset(aug_cfg, model_name="faketest")
+    # 正向:train 挂了 custom transform,eval 没挂
+    assert train.format["type"] == "custom"
+    assert eval_ds.format["type"] != "custom"
+    # length 列访问不被 transform 破坏(group_by_length 路径,spec 待钉 5)
+    assert list(train["length"]) == list(plain_train["length"])

@@ -42,7 +42,7 @@ EVAL_SPLIT_NAME = EVAL_SPLIT[2]
 
 FEATURE_DTYPE = "float16"
 DEFAULT_MAX_AUDIO_SECONDS = 30.0
-_NON_FEATURE_CFG_KEYS = ("data", "training", "smoke", "run_name")
+_NON_FEATURE_CFG_KEYS = ("data", "training", "smoke", "run_name", "augment")
 # model: 段里这几个 key 是训练/解码期旋钮(见 asrfs/whisper/config.yaml),不改变任何一个
 # 预计算出的特征字节;混进 hash 会导致集群上翻一次 gradient_checkpointing 就得重算 60 GB 特征。
 _NON_FEATURE_MODEL_KEYS = {"gradient_checkpointing", "generation_max_length", "apply_spec_augment"}
@@ -61,12 +61,27 @@ def full_dir(model_name: str) -> Path:
     return data_dir() / "full" / model_name
 
 
+DEFAULT_SPEED_PERTURB = (1.0,)
+
+
+def _normalized_speed_perturb(data_cfg: dict) -> list[float]:
+    """hash 语义(spec §2):缺键 ≡ 显式 [1.0]。"""
+    raw = data_cfg.get("speed_perturb")
+    if raw is None:
+        raw = list(DEFAULT_SPEED_PERTURB)
+    return [float(x) for x in raw]
+
+
 def params_hash(cfg: dict) -> str:
     """sha256(排序后的特征相关 cfg 子集):model 段 + 过滤参数 + 数据 revision + dtype。
 
     training/smoke/run_name 与 data.n_train/n_eval 不影响预计算特征,排除在外,
     避免调训练超参就把 60 GB 特征判失效;model.gradient_checkpointing/
     generation_max_length/apply_spec_augment 同理(见 _NON_FEATURE_MODEL_KEYS)。
+    augment 段是训练期特征增广(datasets set_transform 挂接,惰性、非预计算),不
+    改变磁盘上的特征字节,同样排除;data.speed_perturb 预留给未来预计算期变速增广,
+    一旦落地会改变特征字节,故纳入 hash(缺键按显式 [1.0] 归一化,当前尚未实现,
+    见 prepare_full_dataset 开头的 NotImplementedError 守卫)。
     """
     data_cfg = cfg.get("data") or {}
     model_section = {k: v for k, v in cfg.items() if k not in _NON_FEATURE_CFG_KEYS}
@@ -78,6 +93,7 @@ def params_hash(cfg: dict) -> str:
         "model": model_section,
         "max_label_len": data_cfg.get("max_label_len"),
         "max_audio_seconds": float(data_cfg.get("max_audio_seconds", DEFAULT_MAX_AUDIO_SECONDS)),
+        "speed_perturb": _normalized_speed_perturb(data_cfg),
         "librispeech_revision": LIBRISPEECH_REVISION,
         "feature_dtype": FEATURE_DTYPE,
     }
@@ -127,6 +143,12 @@ def _prepared_rows(raw_rows, adapter, processor, cfg, counters):
 
 
 def prepare_full_dataset(cfg: dict, processor_adapter, subset_head: int | None = None) -> dict:
+    sp = _normalized_speed_perturb(cfg.get("data") or {})
+    if sp != list(DEFAULT_SPEED_PERTURB):
+        raise NotImplementedError(
+            f"data.speed_perturb={sp} is reserved but not implemented (spec 2026-07-06 §2)"
+        )
+
     adapter = processor_adapter
     processor = adapter.build_processor(cfg)
     out_root = full_dir(model_name_of(adapter))
@@ -196,6 +218,12 @@ def load_full_dataset(cfg: dict, model_name: str | None = None) -> tuple:
         [load_from_disk(str(root / name)) for name in TRAIN_SPLIT_NAMES]
     )
     eval_ds = load_from_disk(str(root / EVAL_SPLIT_NAME))
+    aug_cfg = cfg.get("augment")
+    if aug_cfg:
+        from asrfs.common.augment import build_spec_augment_transform
+
+        # 只挂 train;eval(validation.clean)保持干净(spec §1)
+        train.set_transform(build_spec_augment_transform(aug_cfg))
     return train, eval_ds
 
 
