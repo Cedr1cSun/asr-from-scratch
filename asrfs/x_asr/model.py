@@ -6,6 +6,8 @@ RNN-T 接线(全笛卡尔 joint + torchaudio rnnt_loss)、greedy 解码、契约
 结构与决策见 docs/superpowers/specs/2026-07-03-x-asr-from-scratch-design.md。
 """
 
+import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -15,7 +17,6 @@ import torch
 import torchaudio
 from transformers import (
     ParakeetFeatureExtractor,
-    ParakeetTokenizerFast,
     PretrainedConfig,
     PreTrainedModel,
 )
@@ -31,6 +32,9 @@ from asrfs.x_asr._vendor.zipformer import Zipformer2
 TOKENIZER_SOURCE = "nvidia/parakeet-ctc-0.6b"
 
 _BPE_MODEL = Path(__file__).resolve().parent / "bpe" / "librispeech_bpe500.model"
+# save_checkpoint/load_checkpoint 之间传递 spm 模型文件用的固定文件名(SURE-EVAL
+# save_pretrained-目录契约要求 tokenizer 也落盘到 ckpt_dir)。
+_SPM_CKPT_NAME = "spm_bpe500.model"
 
 LOSS_FAMILY = "rnnt"
 # LABEL_PAD_ID = blank = SentencePiece vocab_size(同 CTC 族;RNN-T 里 blank 兼任 SOS)。
@@ -44,7 +48,8 @@ class SpmTokenizer:
     (tokenizer(text)["input_ids"] / tokenizer.decode(ids))。"""
 
     def __init__(self, model_path: Path = _BPE_MODEL):
-        self._sp = spm.SentencePieceProcessor(model_file=str(model_path))
+        self._model_path = Path(model_path)
+        self._sp = spm.SentencePieceProcessor(model_file=str(self._model_path))
 
     @property
     def vocab_size(self) -> int:
@@ -55,6 +60,14 @@ class SpmTokenizer:
 
     def decode(self, ids, skip_special_tokens: bool = True) -> str:
         return self._sp.decode(list(ids))
+
+    def save_pretrained(self, out_dir) -> None:
+        os.makedirs(out_dir, exist_ok=True)
+        shutil.copyfile(self._model_path, Path(out_dir) / _SPM_CKPT_NAME)
+
+    @classmethod
+    def from_pretrained(cls, ckpt_dir) -> "SpmTokenizer":
+        return cls(Path(ckpt_dir) / _SPM_CKPT_NAME)
 
 
 # Zipformer-S 缩小预设(spec §5;接口文档 §a 的 train.py 映射,cnn_module_kernel 取 argparse 缺省)
@@ -334,7 +347,7 @@ def save_checkpoint(model, processor, out_dir: str) -> None:
 def load_checkpoint(cfg: dict, ckpt_dir: str) -> tuple:
     model = XASRForRNNT.from_pretrained(ckpt_dir)
     processor = CTCProcessorBundle(
-        tokenizer=ParakeetTokenizerFast.from_pretrained(ckpt_dir),
+        tokenizer=SpmTokenizer.from_pretrained(ckpt_dir),
         feature_extractor=ParakeetFeatureExtractor.from_pretrained(ckpt_dir),
     )
     return model, processor

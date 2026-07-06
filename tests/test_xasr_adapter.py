@@ -13,8 +13,11 @@ from asrfs.x_asr import (
     LOSS_FAMILY,
     build_collator,
     build_dataset,
+    build_processor,
     decode,
+    load_checkpoint,
     make_example,
+    save_checkpoint,
 )
 from asrfs.x_asr.model import XASRConfig, XASRForRNNT
 
@@ -68,6 +71,11 @@ class FakeBundle:
 def tiny_model():
     torch.manual_seed(0)
     return XASRForRNNT(XASRConfig(**TINY)).eval()
+
+
+@pytest.fixture(scope="module")
+def processor_bundle():
+    return build_processor({})
 
 
 def test_constants():
@@ -124,3 +132,16 @@ def test_decode_returns_strings(tiny_model):
     texts = decode(tiny_model, proc, batch)
     assert isinstance(texts, list) and len(texts) == 2
     assert all(isinstance(t, str) for t in texts)
+
+
+@pytest.mark.slow
+def test_checkpoint_roundtrip(tmp_path, processor_bundle, tiny_model):
+    save_checkpoint(tiny_model, processor_bundle, str(tmp_path))
+    model2, processor2 = load_checkpoint({}, str(tmp_path))
+    sd1, sd2 = tiny_model.state_dict(), model2.state_dict()
+    assert sd1.keys() == sd2.keys()
+    for k in sd1:
+        assert torch.allclose(sd1[k], sd2[k], atol=1e-6), k
+    assert processor2.tokenizer.vocab_size == 500
+    ids = processor_bundle.tokenizer("the quick brown fox")["input_ids"]
+    assert processor2.tokenizer.decode(ids) == processor_bundle.tokenizer.decode(ids)
