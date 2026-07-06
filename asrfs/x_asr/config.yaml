@@ -17,11 +17,12 @@ training:
   seed: 42
 
 smoke:
-  overfit1_steps: 460  # 标定:800 步初跑 step_below_0.1=381 → ceil(381*1.2/10)*10(2080Ti FP32,ScaledAdam+Eden)
+  overfit1_steps: 450  # BPE-500 重标定(vocab 501, blank 概率 1/501):460 步初跑 step_below_0.1=373
+                       # → ceil(373*1.2/10)*10=450(2080Ti FP32,ScaledAdam+Eden;旧 BPE-1024 为 381→460)
   overfit1_lr: 0.045
-  mini100_steps: 840   # 标定:250(CTC 20-epoch 启发值)全程处 Eden warmup(500)内 → 全 blank 塌缩;
-                       # 实测发射涌现于 warmup 收尾后:probe(20 条/每 100 步)step500=0/20,600=14/20,700=20/20;
-                       # ceil(700*1.2/10)*10。判据阈值(0.30/0.9/0.8)未动。
+  mini100_steps: 840   # BPE-500 重标定:840 步 mini100 通过(trend 513→11.97, non_empty 1.0,
+                       # repeat 0.154, wer 0.658 recorded-only);判据阈值(0.30/0.9/0.8)未动。旧 BPE-1024
+                       # probe(20 条/每 100 步)step500=0/600=14/700=20 → ceil(700*1.2/10)*10=840,沿用。
   mini100_lr: 0.045
 
 model: {}  # 结构走 model.py SMALL_MODEL 缺省;覆写才写这里
