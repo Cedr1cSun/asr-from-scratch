@@ -23,7 +23,7 @@ def _build_training_args(cfg: dict, overrides: dict, has_eval: bool) -> Seq2SeqT
         "logging_steps": t["logging_steps"],
         "eval_strategy": "steps" if has_eval else "no",
         "eval_steps": t["eval_steps"],
-        "predict_with_generate": True,
+        "predict_with_generate": t.get("predict_with_generate", True),
         "generation_max_length": m["generation_max_length"],
         "save_strategy": "no",
         "seed": t.get("seed", 42),
@@ -59,5 +59,7 @@ def build_trainer(cfg: dict, model, processor, train_ds, eval_ds, collator,
         eval_dataset=eval_ds,
         data_collator=collator,
         processing_class=processor,
-        compute_metrics=compute_metrics if eval_ds is not None else None,
+        compute_metrics=compute_metrics
+        if (eval_ds is not None and args.predict_with_generate)
+        else None,
     )

@@ -79,6 +79,20 @@ def test_harness_override_universe_is_legal():
     assert HARNESS_OVERRIDE_KEYS <= fields
 
 
+def test_predict_with_generate_default_true():
+    from asrfs.whisper.trainer import _build_training_args
+    args = _build_training_args(_cfg(), {}, has_eval=True)
+    assert args.predict_with_generate is True
+
+
+def test_predict_with_generate_off_disables_wer_metrics():
+    from asrfs.whisper.trainer import _build_training_args
+    base = _cfg()
+    cfg = {**base, "training": {**base["training"], "predict_with_generate": False}}
+    args = _build_training_args(cfg, {}, has_eval=True)
+    assert args.predict_with_generate is False
+
+
 # ── checkpoint 往返(tiny 配置,CPU-fast)───────────────────────────────
 
 def test_checkpoint_roundtrip_tiny(tmp_path):
@@ -130,6 +144,33 @@ def test_build_trainer_constructs(medium_setup, tmp_path):
     assert isinstance(trainer, Seq2SeqTrainer)
     assert trainer.args.remove_unused_columns is False
     assert trainer.args.max_steps == 10
+
+
+@pytest.mark.slow
+def test_predict_with_generate_false_disables_compute_metrics(medium_setup, tmp_path):
+    cfg, processor, model = medium_setup
+    ds = _tiny_ds(processor)
+    collator = build_collator(cfg, processor, model)
+    cfg_off = {**cfg, "training": {**cfg["training"], "predict_with_generate": False}}
+    trainer = build_trainer(
+        cfg_off, model, processor, ds, ds, collator,
+        overrides={"output_dir": str(tmp_path), "report_to": []},
+    )
+    assert trainer.args.predict_with_generate is False
+    assert trainer.compute_metrics is None
+
+
+@pytest.mark.slow
+def test_predict_with_generate_true_keeps_compute_metrics(medium_setup, tmp_path):
+    cfg, processor, model = medium_setup
+    ds = _tiny_ds(processor)
+    collator = build_collator(cfg, processor, model)
+    trainer = build_trainer(
+        cfg, model, processor, ds, ds, collator,
+        overrides={"output_dir": str(tmp_path), "report_to": []},
+    )
+    assert trainer.args.predict_with_generate is True
+    assert trainer.compute_metrics is not None
 
 
 @pytest.mark.slow

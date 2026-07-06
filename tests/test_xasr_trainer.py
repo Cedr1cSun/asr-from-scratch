@@ -130,6 +130,32 @@ def test_grad_accum_normalizes_step_loss(tmp_path, tiny_model):
     assert torch.allclose(loss2 * 2, loss1, rtol=1e-4)
 
 
+@pytest.fixture()
+def tiny_trainer_factory(tmp_path, tiny_model):
+    """局部 helper(非全局夹具):按既有 build_trainer 测试的构造方式(tiny model +
+    空数据集),接受额外的 training 段覆盖键,拼进 CFG["training"]。"""
+    def _factory(extra: dict):
+        cfg = {**CFG, "training": {**CFG["training"], **extra}, "run_name": "xa_eden_test"}
+        return build_trainer(
+            cfg, tiny_model, FakeBundle(),
+            train_ds=None, eval_ds=None, collator=lambda b: b,
+            overrides={"output_dir": str(tmp_path)},
+        )
+    return _factory
+
+
+def test_eden_params_default_unchanged(tiny_trainer_factory):
+    trainer = tiny_trainer_factory({})  # cfg training 段无 lr_batches/lr_epochs
+    sched = trainer.lr_scheduler
+    assert sched.lr_batches == 7500 and sched.lr_epochs == 3.5
+
+
+def test_eden_params_from_cfg(tiny_trainer_factory):
+    trainer = tiny_trainer_factory({"lr_batches": 1234, "lr_epochs": 1.5})
+    sched = trainer.lr_scheduler
+    assert sched.lr_batches == 1234 and sched.lr_epochs == 1.5
+
+
 def test_on_epoch_end_advances_eden_epoch(tmp_path, tiny_model):
     """F6:Eden 的 epoch 衰减靠每 epoch 末 step_epoch() 驱动;HF Trainer 只调
     step()(→step_batch),epoch 因子会永远停在 0。BatchCountCallback.on_epoch_end
