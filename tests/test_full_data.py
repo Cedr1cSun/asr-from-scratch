@@ -268,6 +268,44 @@ def test_perturb_speed_length_relation():
     assert same is audio or np.array_equal(same, audio)  # 1.0 恒等
 
 
+def test_duration_filter_is_post_perturb(data_root, monkeypatch):
+    # 时长过滤必须作用在【变速后】音频:28s 原始行在 0.9(变长 →31s)应超 30s 上限被弃,
+    # 1.0(28s)/1.1(25s)保留 → train rows_after==2。若误在原始长度上过滤(退化为
+    # len(row["audio_array"])),三态都 <30s 全保留 →3,本断言即挂,正好锁死该回归。
+    sr = 16000
+
+    def _one_28s_row(config, split, subset_head=None):
+        yield {"id": f"{config}.{split}-28s", "audio_array": np.zeros(28 * sr, dtype=np.float32),
+               "sampling_rate": sr, "text": "ok"}
+
+    monkeypatch.setattr(full_data, "_stream_split", _one_28s_row)
+    cfg = {**CFG, "data": {**(CFG.get("data") or {}), "speed_perturb": [0.9, 1.0, 1.1]}}
+    manifest = full_data.prepare_full_dataset(cfg, FakeAdapter, subset_head=1)
+    splits = manifest["splits"]
+    for name in full_data.TRAIN_SPLIT_NAMES:
+        assert splits[name]["rows_after"] == 2, (name, splits[name])  # 0.9 弃、1.0/1.1 留
+    assert splits[full_data.EVAL_SPLIT_NAME]["rows_after"] == 1        # eval 不变速,28s 保留
+
+
+def test_length_column_is_perturbed_sample_count(data_root, monkeypatch):
+    # length 列必须是【变速后】采样点数(供 group_by_length 分桶);单条 1s 行 ×[0.9,1.0,1.1]
+    # 应产三种不同 length(0.9>16000>1.1),1.0 恰 16000。误设常量或原始长度 → 三值相等,挂。
+    sr = 16000
+
+    def _one_1s_row(config, split, subset_head=None):
+        yield {"id": f"{config}.{split}-1s", "audio_array": np.zeros(sr, dtype=np.float32),
+               "sampling_rate": sr, "text": "ok"}
+
+    monkeypatch.setattr(full_data, "_stream_split", _one_1s_row)
+    cfg = {**CFG, "data": {**(CFG.get("data") or {}), "speed_perturb": [0.9, 1.0, 1.1]}}
+    full_data.prepare_full_dataset(cfg, FakeAdapter, subset_head=1)
+    ds = load_from_disk(str(data_root / "full" / "faketest" / "train.clean.100"))
+    lengths = sorted(int(x) for x in ds["length"])
+    assert len(lengths) == 3 and len(set(lengths)) == 3, lengths  # 三态各异
+    assert lengths[0] < sr < lengths[2]                            # 1.1 最短 < 16000 < 0.9 最长
+    assert sr in lengths                                           # 1.0 恰为原始 16000
+
+
 def test_load_full_dataset_rejects_subset_features(data_root, monkeypatch):
     monkeypatch.delenv("ASRFS_ALLOW_SUBSET", raising=False)
     full_data.prepare_full_dataset(CFG, FakeAdapter, subset_head=2)  # 写 subset manifest
