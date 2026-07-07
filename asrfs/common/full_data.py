@@ -181,6 +181,37 @@ def _stream_split(config: str, split: str, subset_head: int | None = None):
         }
 
 
+def _stream_manifest(manifest_path, subset_head: int | None = None):
+    """公司 jsonl 清单流(spec 2026-07-07 §一):逐行 {path, target} → soundfile 读集群
+    wav,产出与 _stream_split 同构的行。全部 fail fast(spec §四):静默跳行会让实际
+    数据与 manifest_md5 指纹脱钩,公司池缺文件是异常必须暴露。测试直接喂 tmp jsonl。"""
+    manifest_path = Path(manifest_path)
+    yielded = 0
+    with open(manifest_path, encoding="utf-8") as f:
+        for lineno, line in enumerate(f, start=1):
+            if subset_head is not None and yielded >= subset_head:
+                return
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"{manifest_path}:{lineno}: invalid JSON: {e}") from e
+            if "path" not in row or "target" not in row:
+                raise ValueError(f"{manifest_path}:{lineno}: row missing 'path' or 'target'")
+            wav_path = row["path"]
+            if not os.path.isfile(wav_path):
+                raise FileNotFoundError(f"{manifest_path}:{lineno}: wav not found: {wav_path}")
+            array, sampling_rate = sf.read(wav_path, dtype="float32")
+            yielded += 1
+            yield {
+                "id": Path(wav_path).stem,
+                "audio_array": np.asarray(array, dtype=np.float32),
+                "sampling_rate": int(sampling_rate),
+                "text": row["target"],
+            }
+
+
 def _perturb_speed(audio: np.ndarray, sr: int, factor: float) -> np.ndarray:
     """torchaudio sox-speed 语义(变速变调);factor=1.0 恒等返回原 array。
     0.9 → 变慢变长,1.1 → 变快变短(icefall/lhotse 三态增广)。"""

@@ -102,3 +102,50 @@ def test_env_overrides(monkeypatch, tmp_path):
     h_cfg_path = full_data.params_hash(cfg)
     monkeypatch.setenv("ASRFS_MANIFEST_PATH", str(other))
     assert full_data.params_hash(cfg) != h_cfg_path
+
+
+def _write_wav(tmp_path, name, seconds=1.0, sr=16000):
+    t = np.linspace(0, seconds, int(sr * seconds), endpoint=False)
+    wav = (0.1 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+    p = tmp_path / name
+    sf.write(str(p), wav, sr)
+    return p, len(wav)
+
+
+def test_stream_manifest_row_contract(tmp_path):
+    wav_path, n = _write_wav(tmp_path, "utt-001.wav")
+    mp = _write_manifest(tmp_path, [{"path": str(wav_path), "target": "HELLO WORLD", "task": "ASR"}])
+    rows = list(full_data._stream_manifest(mp))
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["id"] == "utt-001"                       # wav 文件名去扩展名
+    assert r["text"] == "HELLO WORLD"                 # target 原样(全大写不动)
+    assert r["sampling_rate"] == 16000
+    assert r["audio_array"].dtype == np.float32 and len(r["audio_array"]) == n
+
+
+def test_stream_manifest_subset_head(tmp_path):
+    wav_path, _ = _write_wav(tmp_path, "u.wav")
+    mp = _write_manifest(tmp_path, [{"path": str(wav_path), "target": f"T{i}"} for i in range(5)])
+    out = list(full_data._stream_manifest(mp, subset_head=2))
+    assert [r["text"] for r in out] == ["T0", "T1"]
+
+
+def test_stream_manifest_missing_wav(tmp_path):
+    mp = _write_manifest(tmp_path, [{"path": str(tmp_path / "ghost.wav"), "target": "X"}])
+    with pytest.raises(FileNotFoundError, match="ghost.wav"):
+        list(full_data._stream_manifest(mp))
+
+
+def test_stream_manifest_bad_rows(tmp_path):
+    wav_path, _ = _write_wav(tmp_path, "u.wav")
+    good = json.dumps({"path": str(wav_path), "target": "OK"})
+    bad_json = tmp_path / "bad.jsonl"
+    bad_json.write_text(good + "\nnot-json\n")
+    with pytest.raises(ValueError, match=r":2:"):     # 1-based 行号
+        list(full_data._stream_manifest(bad_json))
+
+    missing_field = tmp_path / "missing.jsonl"
+    missing_field.write_text(json.dumps({"path": str(wav_path)}) + "\n")  # 缺 target
+    with pytest.raises(ValueError, match=r":1:"):
+        list(full_data._stream_manifest(missing_field))
