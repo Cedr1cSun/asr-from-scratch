@@ -92,6 +92,34 @@ def _tokenizer_fingerprint(model_name: str, cfg: dict) -> str | None:
     return fp(cfg) if callable(fp) else None
 
 
+def _resolve_source(data_cfg: dict) -> str:
+    """数据源开关(spec 2026-07-07 §二):env ASRFS_DATA_SOURCE > cfg data.source > 缺省 hf。
+    缺省即 hf 保证现有 config/测试零改动;本地 e2e 对 config_full 用 env 强制 hf。"""
+    src = os.environ.get("ASRFS_DATA_SOURCE") or data_cfg.get("source") or "hf"
+    if src not in ("hf", "manifest"):
+        raise ValueError(f"data.source must be 'hf' or 'manifest', got {src!r}")
+    return src
+
+
+def _resolve_manifest_path(data_cfg: dict) -> Path:
+    """manifest 路径:env ASRFS_MANIFEST_PATH > cfg data.manifest_path;缺失即抛,不拖到读数据。"""
+    raw = os.environ.get("ASRFS_MANIFEST_PATH") or data_cfg.get("manifest_path")
+    if not raw:
+        raise ValueError(
+            "data.source=manifest requires data.manifest_path in cfg or ASRFS_MANIFEST_PATH env"
+        )
+    return Path(raw)
+
+
+def _manifest_md5(path: Path) -> str:
+    """jsonl 整文件流式 md5(104 MB 秒级)。内容即数据集身份:改内容才重算特征,挪路径不重算。"""
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def params_hash(cfg: dict, tokenizer_fingerprint: str | None = None) -> str:
     """sha256(排序后的特征相关 cfg 子集):model 段 + 过滤参数 + 数据 revision + dtype
     + tokenizer 指纹。
@@ -104,6 +132,7 @@ def params_hash(cfg: dict, tokenizer_fingerprint: str | None = None) -> str:
     split 三态 0.9/1.0/1.1,见 prepare_full_dataset/_perturb_speed),改变特征字节,
     故纳入 hash(缺键按显式 [1.0] 归一化)。tokenizer_fingerprint 见
     _tokenizer_fingerprint——prepare/load 双侧都传,保证"换 tokenizer ⇒ 判 stale"。
+    data.source=manifest 时数据集身份键换为 manifest_md5(jsonl 整文件 md5),见 _resolve_source/_manifest_md5。
     """
     data_cfg = cfg.get("data") or {}
     model_section = {k: v for k, v in cfg.items() if k not in _NON_FEATURE_CFG_KEYS}
@@ -116,10 +145,16 @@ def params_hash(cfg: dict, tokenizer_fingerprint: str | None = None) -> str:
         "max_label_len": data_cfg.get("max_label_len"),
         "max_audio_seconds": float(data_cfg.get("max_audio_seconds", DEFAULT_MAX_AUDIO_SECONDS)),
         "speed_perturb": _normalized_speed_perturb(data_cfg),
-        "librispeech_revision": LIBRISPEECH_REVISION,
         "feature_dtype": FEATURE_DTYPE,
         "tokenizer_fingerprint": tokenizer_fingerprint,
     }
+    # 数据集身份按 source 分叉(spec 2026-07-07 §三):hf 沿用原键原值(json.dumps
+    # sort_keys 下与改动前字节级一致,已算 HF 特征不判 stale);manifest 用 jsonl 内容
+    # md5。键名不同,两线指纹不可能相撞;manifest 文件缺失在此处即抛 FileNotFoundError。
+    if _resolve_source(data_cfg) == "manifest":
+        subset["manifest_md5"] = _manifest_md5(_resolve_manifest_path(data_cfg))
+    else:
+        subset["librispeech_revision"] = LIBRISPEECH_REVISION
     payload = json.dumps(subset, sort_keys=True, default=str).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
 
