@@ -64,6 +64,21 @@ def test_manifest_hash_uses_content_not_path(tmp_path):
     assert full_data.params_hash(cfg) != h1
 
 
+def test_manifest_hash_includes_librispeech_revision(monkeypatch, tmp_path):
+    """final-review F1/F9:manifest 源 eval split(validation.clean)仍恒走 HF、钉
+    LIBRISPEECH_REVISION,fingerprint 必须覆盖到——否则 repin revision 后 hf 线正确判
+    stale,manifest 线却读不到任何 eval 版本变化,训练/eval 会静默吃旧版本 eval 数据。
+    monkeypatch 的是 full_data 模块内 params_hash 实际读取的名字(from-import 绑定)。"""
+    p = _write_manifest(tmp_path, [{"path": "/x/a.wav", "target": "OK"}])
+    cfg = copy.deepcopy(CFG)
+    cfg["data"]["source"] = "manifest"
+    cfg["data"]["manifest_path"] = str(p)
+    h_before = full_data.params_hash(cfg)
+    monkeypatch.setattr(full_data, "LIBRISPEECH_REVISION", "deadbeef-repinned")
+    h_after = full_data.params_hash(cfg)
+    assert h_before != h_after
+
+
 def test_manifest_hash_missing_file(tmp_path):
     cfg = copy.deepcopy(CFG)
     cfg["data"]["source"] = "manifest"
@@ -131,6 +146,18 @@ def test_stream_manifest_subset_head(tmp_path):
     assert [r["text"] for r in out] == ["T0", "T1"]
 
 
+def test_stream_manifest_subset_head_ignores_blank_lines(tmp_path):
+    """final-review F5:subset_head 必须按*产出行数*计数,不能退化成按*文件行数*计数——
+    否则一份夹了空行的 manifest 会让 subset_head 提前截断,丢真实数据行。"""
+    wav_path, _ = _write_wav(tmp_path, "u.wav")
+    rows_json = "\n".join(json.dumps({"path": str(wav_path), "target": f"T{i}"}) for i in range(5))
+    # 每条有效行前插一个空行:5 条有效行 + 5 个空行 = 10 个文件行
+    p = tmp_path / "blank.jsonl"
+    p.write_text("\n" + rows_json.replace("\n", "\n\n") + "\n")
+    out = list(full_data._stream_manifest(p, subset_head=3))
+    assert [r["text"] for r in out] == ["T0", "T1", "T2"]  # 按行数截断会在数到 3 个文件行时就停
+
+
 def test_stream_manifest_missing_wav(tmp_path):
     mp = _write_manifest(tmp_path, [{"path": str(tmp_path / "ghost.wav"), "target": "X"}])
     with pytest.raises(FileNotFoundError, match="ghost.wav"):
@@ -145,10 +172,40 @@ def test_stream_manifest_bad_rows(tmp_path):
     with pytest.raises(ValueError, match=r":2:"):     # 1-based 行号
         list(full_data._stream_manifest(bad_json))
 
-    missing_field = tmp_path / "missing.jsonl"
-    missing_field.write_text(json.dumps({"path": str(wav_path)}) + "\n")  # 缺 target
+    missing_target = tmp_path / "missing_target.jsonl"
+    missing_target.write_text(json.dumps({"path": str(wav_path)}) + "\n")  # 缺 target
     with pytest.raises(ValueError, match=r":1:"):
-        list(full_data._stream_manifest(missing_field))
+        list(full_data._stream_manifest(missing_target))
+
+    missing_path = tmp_path / "missing_path.jsonl"  # final-review F6:缺 path 的另一半未覆盖
+    missing_path.write_text(json.dumps({"target": "OK"}) + "\n")
+    with pytest.raises(ValueError, match=r":1:"):
+        list(full_data._stream_manifest(missing_path))
+
+
+def test_stream_manifest_non_dict_row(tmp_path):
+    """final-review F4:合法 JSON 但非 object(null/数字/列表/字符串)必须走 ValueError+
+    lineno 契约,不能漏成裸 TypeError(dict 的 `in` 是 key 检查,str 的 `in` 是子串匹配,
+    会在两个子串都命中时越过检查,在 row["path"] 处才炸出无上下文的 TypeError)。"""
+    p = tmp_path / "null_row.jsonl"
+    p.write_text("null\n")
+    with pytest.raises(ValueError, match=r":1:"):
+        list(full_data._stream_manifest(p))
+
+
+def test_stream_manifest_rejects_stereo_wav(tmp_path):
+    """final-review F10:HF 特征抽取器把 ndim>1 numpy 输入当 batch(is_batched_numpy),
+    stereo wav 会悄悄写出近空垃圾特征而不报错,和 manifest_md5 指纹脱钩;必须 fail fast。"""
+    sr = 16000
+    t = np.linspace(0, 1.0, sr, endpoint=False)
+    stereo = np.stack([np.sin(2 * np.pi * 440 * t), np.sin(2 * np.pi * 220 * t)], axis=1).astype(
+        np.float32
+    )
+    wav_path = tmp_path / "stereo.wav"
+    sf.write(str(wav_path), stereo, sr)
+    mp = _write_manifest(tmp_path, [{"path": str(wav_path), "target": "X"}])
+    with pytest.raises(ValueError, match=r":1:.*mono"):
+        list(full_data._stream_manifest(mp))
 
 
 class FakeAdapter:

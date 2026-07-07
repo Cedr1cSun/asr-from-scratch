@@ -1,12 +1,27 @@
-"""LibriSpeech 960h full-mode 数据管线(设计 spec §3.3)。
+"""LibriSpeech 960h full-mode 数据管线(设计 spec §3.3 + manifest-loader spec 2026-07-07)。
 
 prepare_full_dataset 是显式人工/agent 触发的离线预计算步骤(不挂 harness 管线
-stage):流式读 train.clean.100 + train.clean.360 + train.other.500(eval 用
-validation.clean),逐条调用适配包的 make_example 预计算特征(float16),按模型
-分目录 save_to_disk,并写 manifest.json 供 harness training_script stage 校验。
+stage),按 data.source 二选一(env ASRFS_DATA_SOURCE > cfg data.source > 缺省 hf,
+见 _resolve_source):
+- source=hf(默认,四份 config.yaml 用):流式读 train.clean.100 + train.clean.360 +
+  train.other.500 三个 split。
+- source=manifest(四份 config_full.yaml 默认):流式读 data.manifest_path 指向的公司
+  jsonl 清单,整份拼成单一 train.960 split(不再拆 100/360/500)。
+两条线 eval 都恒读 HF validation.clean,不随 source 分叉(_split_plan 末尾无条件
+append)。逐条调用适配包的 make_example 预计算特征(float16),按模型分目录
+save_to_disk,并写 manifest.json(含 params_hash)供 harness training_script stage
+校验;load_full_dataset 按同一 _resolve_source 选要拼的 train split 名。
 
 真正的 960h 全量预计算与训练在集群侧执行(每模型特征 ~55-60 GB + HF 下载缓存
 ~60 GB,单遍数小时到天级);本机(2080 Ti)只用 --subset-head N 做小子集验证。
+
+磁盘note(final-review F3):同一 out_root(data/full/<model>/)下切换 data.source 不会
+清理另一条线遗留的 split 目录——prepare_full_dataset 每次只删/重写当前 _split_plan
+里的 split 名,hf 线的 train.clean.100/360/500 与 manifest 线的 train.960 互不相干。
+correctness 不受影响(params_hash 的数据身份键 + load 侧 train_names 都按 source 分叉,
+旧线目录永远不会被读到),纯粹是磁盘占用;在同一 out_root 先后跑过两条线(比如本地
+e2e 曾用 ASRFS_DATA_SOURCE=hf 覆盖过 config_full),另一条线的目录不会自动删,集群
+配额紧张时需人工 rm -rf 清理,不自动删除。
 """
 
 import argparse
@@ -135,7 +150,12 @@ def params_hash(cfg: dict, tokenizer_fingerprint: str | None = None) -> str:
     split 三态 0.9/1.0/1.1,见 prepare_full_dataset/_perturb_speed),改变特征字节,
     故纳入 hash(缺键按显式 [1.0] 归一化)。tokenizer_fingerprint 见
     _tokenizer_fingerprint——prepare/load 双侧都传,保证"换 tokenizer ⇒ 判 stale"。
-    data.source=manifest 时数据集身份键换为 manifest_md5(jsonl 整文件 md5),见 _resolve_source/_manifest_md5。
+    data.source=manifest 时数据集身份键额外加 manifest_md5(jsonl 整文件 md5),见
+    _resolve_source/_manifest_md5;librispeech_revision 两支都保留——即使 source=manifest,
+    eval split(validation.clean)仍恒走 HF 且钉 LIBRISPEECH_REVISION(_split_plan 末尾
+    无条件 append EVAL_SPLIT,见下方),manifest_md5 只覆盖 train 身份,若丢了
+    revision 键,repin LIBRISPEECH_REVISION 时 manifest 线的 stale 检查会对 eval
+    数据的版本变化视而不见(final-review F1/F9)。
     """
     data_cfg = cfg.get("data") or {}
     model_section = {k: v for k, v in cfg.items() if k not in _NON_FEATURE_CFG_KEYS}
@@ -151,13 +171,16 @@ def params_hash(cfg: dict, tokenizer_fingerprint: str | None = None) -> str:
         "feature_dtype": FEATURE_DTYPE,
         "tokenizer_fingerprint": tokenizer_fingerprint,
     }
-    # 数据集身份按 source 分叉(spec 2026-07-07 §三):hf 沿用原键原值(json.dumps
-    # sort_keys 下与改动前字节级一致,已算 HF 特征不判 stale);manifest 用 jsonl 内容
-    # md5。键名不同,两线指纹不可能相撞;manifest 文件缺失在此处即抛 FileNotFoundError。
+    # 数据集身份按 source 分叉(spec 2026-07-07 §三,final-review F1/F9 补丁):hf 沿用
+    # 原键原值(json.dumps sort_keys 下与改动前字节级一致,已算 HF 特征不判 stale)。
+    # manifest 源在此基础上*加*一个 manifest_md5 键(jsonl 内容 md5)——不是替换:
+    # librispeech_revision 恒写,因为 eval split(validation.clean)不随 source 分叉,
+    # 永远经 _stream_split 按 LIBRISPEECH_REVISION 拉取(见 _split_plan)。若 manifest
+    # 分支不写这个键,repin revision 时 hf 线正确判 stale,manifest 线却读不到任何
+    # eval 版本变化,training/eval 会静默吃旧版本的 validation.clean。
+    subset["librispeech_revision"] = LIBRISPEECH_REVISION
     if _resolve_source(data_cfg) == "manifest":
         subset["manifest_md5"] = _manifest_md5(_resolve_manifest_path(data_cfg))
-    else:
-        subset["librispeech_revision"] = LIBRISPEECH_REVISION
     payload = json.dumps(subset, sort_keys=True, default=str).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
 
@@ -200,12 +223,25 @@ def _stream_manifest(manifest_path, subset_head: int | None = None):
                 row = json.loads(line)
             except json.JSONDecodeError as e:
                 raise ValueError(f"{manifest_path}:{lineno}: invalid JSON: {e}") from e
+            # final-review F4:valid JSON 但非 object(null/数字/字符串/列表)不能直接走
+            # `in` 检查——对 dict 是 key 检查,对 str 却是子串匹配,会在两个子串都命中时
+            # 静默放过,再在 row["path"] 处炸出一个无 manifest 路径/行号的裸 TypeError。
+            if not isinstance(row, dict):
+                raise ValueError(f"{manifest_path}:{lineno}: row is not a JSON object: {line!r}")
             if "path" not in row or "target" not in row:
                 raise ValueError(f"{manifest_path}:{lineno}: row missing 'path' or 'target'")
             wav_path = row["path"]
             if not os.path.isfile(wav_path):
                 raise FileNotFoundError(f"{manifest_path}:{lineno}: wav not found: {wav_path}")
             array, sampling_rate = sf.read(wav_path, dtype="float32")
+            if array.ndim != 1:
+                # final-review F10:HF 特征抽取器把 ndim>1 numpy 输入当 batch 处理
+                # (is_batched_numpy),make_example 会悄悄吃第一"样本"的近空垃圾特征,
+                # 不报错但和 manifest_md5 指纹脱钩(spec §四禁止的静默数据/指纹解耦)。
+                raise ValueError(
+                    f"{manifest_path}:{lineno}: expected mono wav, got shape "
+                    f"{array.shape}: {wav_path}"
+                )
             yielded += 1
             yield {
                 "id": Path(wav_path).stem,
@@ -327,12 +363,17 @@ def load_full_dataset(cfg: dict, model_name: str | None = None) -> tuple:
             f"--config <config.yaml> --adapter asrfs.{model_name}"
         )
     manifest = json.loads(manifest_path.read_text())
+    # 前置解析一次,复用于报错提示与下方 train_names 分叉(final-review F2):prepare/load
+    # 分属不同 shell/进程时,ASRFS_DATA_SOURCE 忘设/误设是最常见的失配诱因;报错里把
+    # load 侧实际解析出的 source 打出来,一眼看出是 env 问题还是真要重新预计算。
+    resolved_source = _resolve_source(cfg.get("data") or {})
     expected = params_hash(cfg, tokenizer_fingerprint=_tokenizer_fingerprint(model_name, cfg))
     if manifest["params_hash"] != expected:
         raise ValueError(
             f"stale full-mode features for {model_name}: manifest params_hash "
             f"{manifest['params_hash'][:12]}.. != cfg {expected[:12]}..; "
-            f"re-run prepare_full_dataset"
+            f"re-run prepare_full_dataset (resolved data source: {resolved_source}; "
+            f"check ASRFS_DATA_SOURCE/ASRFS_MANIFEST_PATH match prepare-time env)"
         )
     if manifest.get("subset_head") is not None and os.environ.get("ASRFS_ALLOW_SUBSET") != "1":
         raise RuntimeError(
@@ -343,9 +384,7 @@ def load_full_dataset(cfg: dict, model_name: str | None = None) -> tuple:
             f"ASRFS_ALLOW_SUBSET=1 to intentionally train on the subset (e2e only)."
         )
     train_names = (
-        (MANIFEST_TRAIN_SPLIT_NAME,)
-        if _resolve_source(cfg.get("data") or {}) == "manifest"
-        else TRAIN_SPLIT_NAMES
+        (MANIFEST_TRAIN_SPLIT_NAME,) if resolved_source == "manifest" else TRAIN_SPLIT_NAMES
     )
     train = concatenate_datasets([load_from_disk(str(root / name)) for name in train_names])
     eval_ds = load_from_disk(str(root / EVAL_SPLIT_NAME))

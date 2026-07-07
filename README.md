@@ -61,22 +61,26 @@ python3 -m venv .venv
 
 ## 全量数据预计算(960h,full mode)
 
-特征离线预计算归 `asrfs.common.full_data`(spec §3.3),由人工/agent 显式触发,不挂 harness 管线 stage:
+特征离线预计算归 `asrfs.common.full_data`(spec §3.3 + manifest-loader spec 2026-07-07),由人工/agent 显式触发,不挂 harness 管线 stage。数据源二选一(env `ASRFS_DATA_SOURCE` > cfg `data.source` > 缺省 `hf`):
 
 ```bash
-# 集群侧:960h 全量(数小时到天级;每模型特征 ~55-60 GB + HF 下载缓存 ~60 GB)
+# 集群侧:config_full.yaml 默认 data.source: manifest,读 data.manifest_path 指向的公司
+# jsonl 清单(960h,数小时到天级;每模型特征 ~55-60 GB),整份拼成单一 train.960 split;
+# eval(validation.clean)不随 source 分叉,恒经 hf-mirror 流式拉取 HF LibriSpeech(仍需外网/
+# HF 访问,~60 GB 下载缓存)
 ASRFS_DATA_DIR=/data/asrfs .venv/bin/python -m asrfs.common.full_data \
-  --config asrfs/whisper/config.yaml --adapter asrfs.whisper
+  --config asrfs/whisper/config_full.yaml --adapter asrfs.whisper
 
-# 本机(2080 Ti):每 split 只取前 N 条做管线验证
-.venv/bin/python -m asrfs.common.full_data \
-  --config asrfs/whisper/config.yaml --adapter asrfs.whisper --subset-head 4
+# 本地 e2e:没有集群 jsonl 时用 ASRFS_DATA_SOURCE=hf 覆盖 config_full,回落三 split 老流程
+# (也可用 ASRFS_MANIFEST_PATH 指向本地小 jsonl,走 manifest 线但不改 config_full 文件)
+ASRFS_DATA_SOURCE=hf .venv/bin/python -m asrfs.common.full_data \
+  --config asrfs/whisper/config_full.yaml --adapter asrfs.whisper --subset-head 4
 ```
 
-- train = clean.100 + clean.360 + other.500;eval = validation.clean;test-clean/test-other 留给 SURE-EVAL,不进训练管线
+- source=hf(config.yaml 用):train = clean.100 + clean.360 + other.500;source=manifest(config_full.yaml 默认):train = 单一 train.960(公司 jsonl 内容整份拼接,不再拆 100/360/500)。两条线 eval 都 = validation.clean;test-clean/test-other 留给 SURE-EVAL,不进训练管线
 - 特征 float16,按模型分目录:`$ASRFS_DATA_DIR/full/{model}/`,含 `manifest.json`(各 split 过滤前/后行数、dtype、params_hash、subset_head)
 - 过滤:音频 > `data.max_audio_seconds`(30s);label 长度 > `data.max_label_len`(whisper 448;parakeet 不设)
-- 训练侧经 `build_dataset(cfg, processor, mode="full")` 加载;manifest 的 params_hash 与当前 config 失配时拒绝加载,需重跑预计算
+- 训练侧经 `build_dataset(cfg, processor, mode="full")` 加载;manifest 的 params_hash 与当前 config 失配时拒绝加载(报错含已解析的 data source,便于排查 prepare/load 两侧 env 是否一致),需重跑预计算。prepare 和 load(训练)若在不同 shell/进程里跑,`ASRFS_DATA_SOURCE`/`ASRFS_MANIFEST_PATH` 两侧必须一致,否则会命中 stale 报错
 
 ## 合规口径
 
