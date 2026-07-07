@@ -18,6 +18,9 @@ training:
   # 漂移、max_steps(110000=50ep@128)全失配。
   per_device_train_batch_size: 32   # batch_probe 3090 实测 2026-07-07
   gradient_accumulation_steps: 1   # = 128/(probe_bs 32 × n_gpu 4),阶段二与 sensevoice 各 4 卡并行
+  dataloader_num_workers: 8      # NFS 特征随机读,workers=0 时 GPU 饥饿(2026-07-08 实测 67s/step,4×预期)
+  dataloader_prefetch_factor: 4
+  dataloader_persistent_workers: true
   logging_steps: 50
   eval_steps: 1000
   save_steps: 1000
