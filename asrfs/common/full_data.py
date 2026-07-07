@@ -42,6 +42,9 @@ EVAL_SPLIT = ("clean", "validation", "validation.clean")
 ALL_SPLITS = TRAIN_SPLITS + (EVAL_SPLIT,)
 TRAIN_SPLIT_NAMES = tuple(s[2] for s in TRAIN_SPLITS)
 EVAL_SPLIT_NAME = EVAL_SPLIT[2]
+# manifest 源 train 整体一个 split(jsonl 本就是拼好的 960h,不按 100/360/500 拆,
+# 避免解析路径子串的脆弱逻辑);eval 恒走 HF validation.clean,不随 source 分叉。
+MANIFEST_TRAIN_SPLIT_NAME = "train.960"
 
 FEATURE_DTYPE = "float16"
 DEFAULT_MAX_AUDIO_SECONDS = 30.0
@@ -212,6 +215,27 @@ def _stream_manifest(manifest_path, subset_head: int | None = None):
             }
 
 
+def _split_plan(cfg: dict, subset_head: int | None):
+    """产 (split_name, factors, raw_rows_factory) 序列;source 分叉集中在这一处。"""
+    data_cfg = cfg.get("data") or {}
+    speed_factors = _normalized_speed_perturb(data_cfg)
+    plan = []
+    if _resolve_source(data_cfg) == "manifest":
+        mpath = _resolve_manifest_path(data_cfg)
+        plan.append(
+            (MANIFEST_TRAIN_SPLIT_NAME, speed_factors, lambda: _stream_manifest(mpath, subset_head))
+        )
+    else:
+        for config, split, split_name in TRAIN_SPLITS:
+            plan.append(
+                (split_name, speed_factors,
+                 lambda config=config, split=split: _stream_split(config, split, subset_head))
+            )
+    config, split, split_name = EVAL_SPLIT
+    plan.append((split_name, [1.0], lambda: _stream_split(config, split, subset_head)))
+    return plan
+
+
 def _perturb_speed(audio: np.ndarray, sr: int, factor: float) -> np.ndarray:
     """torchaudio sox-speed 语义(变速变调);factor=1.0 恒等返回原 array。
     0.9 → 变慢变长,1.1 → 变快变短(icefall/lhotse 三态增广)。"""
@@ -242,11 +266,13 @@ def _prepared_rows(raw_rows, adapter, processor, cfg, counters, speed_factors):
 
 
 def prepare_full_dataset(cfg: dict, processor_adapter, subset_head: int | None = None) -> dict:
-    speed_factors = _normalized_speed_perturb(cfg.get("data") or {})
     adapter = processor_adapter
     processor = adapter.build_processor(cfg)
     model_name = model_name_of(adapter)
     tokenizer_fp = _tokenizer_fingerprint(model_name, cfg)
+    # hash 前置(spec §三):manifest 漏配路径/文件缺失在任何重活前即刻抛;md5 只读一次,
+    # manifest.json 记录的是本次预计算实际消费的清单内容快照。
+    cfg_hash = params_hash(cfg, tokenizer_fingerprint=tokenizer_fp)
     out_root = full_dir(model_name)
     out_root.mkdir(parents=True, exist_ok=True)
 
@@ -257,18 +283,15 @@ def prepare_full_dataset(cfg: dict, processor_adapter, subset_head: int | None =
     (out_root / "manifest.json").unlink(missing_ok=True)
 
     manifest_splits = {}
-    for config, split, split_name in ALL_SPLITS:
+    for split_name, factors, raw_factory in _split_plan(cfg, subset_head):
         counters = {"rows_before": 0, "rows_after": 0}
-        factors = speed_factors if split_name in TRAIN_SPLIT_NAMES else [1.0]
         split_dir = out_root / split_name
         work_dir = out_root / f".work_{split_name}"
         if work_dir.exists():
             shutil.rmtree(work_dir)
 
-        def gen(factors=factors):  # 默认参数绑定,避免闭包 late-binding
-            yield from _prepared_rows(
-                _stream_split(config, split, subset_head), adapter, processor, cfg, counters, factors
-            )
+        def gen(factors=factors, raw_factory=raw_factory):  # 默认参数绑定,避免闭包 late-binding
+            yield from _prepared_rows(raw_factory(), adapter, processor, cfg, counters, factors)
 
         # from_generator 增量写 arrow,内存不随 split 体量增长(960h 单 split 数十 GB)
         ds = Dataset.from_generator(gen, cache_dir=str(work_dir))
@@ -283,7 +306,7 @@ def prepare_full_dataset(cfg: dict, processor_adapter, subset_head: int | None =
         "splits": manifest_splits,
         "feature_dir": str(out_root),
         "dtype": FEATURE_DTYPE,
-        "params_hash": params_hash(cfg, tokenizer_fingerprint=tokenizer_fp),
+        "params_hash": cfg_hash,
         "subset_head": subset_head,
     }
     (out_root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
@@ -319,9 +342,12 @@ def load_full_dataset(cfg: dict, model_name: str | None = None) -> tuple:
             f"Re-run prepare_full_dataset without --subset-head, or set "
             f"ASRFS_ALLOW_SUBSET=1 to intentionally train on the subset (e2e only)."
         )
-    train = concatenate_datasets(
-        [load_from_disk(str(root / name)) for name in TRAIN_SPLIT_NAMES]
+    train_names = (
+        (MANIFEST_TRAIN_SPLIT_NAME,)
+        if _resolve_source(cfg.get("data") or {}) == "manifest"
+        else TRAIN_SPLIT_NAMES
     )
+    train = concatenate_datasets([load_from_disk(str(root / name)) for name in train_names])
     eval_ds = load_from_disk(str(root / EVAL_SPLIT_NAME))
     aug_cfg = cfg.get("augment")
     if aug_cfg:

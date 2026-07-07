@@ -149,3 +149,90 @@ def test_stream_manifest_bad_rows(tmp_path):
     missing_field.write_text(json.dumps({"path": str(wav_path)}) + "\n")  # 缺 target
     with pytest.raises(ValueError, match=r":1:"):
         list(full_data._stream_manifest(missing_field))
+
+
+class FakeAdapter:
+    __name__ = "asrfs.manifesttest"
+
+    @staticmethod
+    def build_processor(cfg):
+        return "fake-processor"
+
+    @staticmethod
+    def make_example(processor, audio, sampling_rate, text):
+        assert processor == "fake-processor"
+        frames = max(1, len(audio) // 1600)
+        feats = np.full((frames, 2), float(len(audio)), dtype=np.float32)
+        return {"input_features": feats, "labels": [ord(c) % 32 for c in text.lower()]}
+
+
+@pytest.fixture()
+def manifest_env(monkeypatch, tmp_path):
+    """manifest 源 prepare/load 环境:数据目录隔离 + eval 仍走(fake 的)HF 流。"""
+    monkeypatch.setenv("ASRFS_DATA_DIR", str(tmp_path / "data"))
+
+    def _fake_eval_stream(config, split, subset_head=None):
+        sr = 16000
+        yield {"id": f"{config}.{split}-eval", "audio_array": np.zeros(sr, dtype=np.float32),
+               "sampling_rate": sr, "text": "ok"}
+
+    monkeypatch.setattr(full_data, "_stream_split", _fake_eval_stream)
+    return tmp_path
+
+
+def _manifest_cfg(tmp_path, n_utts=2, speed_perturb=None):
+    wavs = [_write_wav(tmp_path, f"utt-{i:03d}.wav")[0] for i in range(n_utts)]
+    mp = _write_manifest(tmp_path, [{"path": str(w), "target": "OK", "task": "ASR"} for w in wavs])
+    cfg = copy.deepcopy(CFG)
+    cfg["data"]["source"] = "manifest"
+    cfg["data"]["manifest_path"] = str(mp)
+    if speed_perturb:
+        cfg["data"]["speed_perturb"] = speed_perturb
+    return cfg, mp
+
+
+def test_prepare_manifest_source_roundtrip(manifest_env):
+    cfg, _ = _manifest_cfg(manifest_env, n_utts=2)
+    manifest = full_data.prepare_full_dataset(cfg, FakeAdapter)
+    # manifest 源:train 单 split "train.960" + eval 恒 validation.clean(spec §一)
+    assert sorted(manifest["splits"]) == ["train.960", "validation.clean"]
+    assert manifest["splits"]["train.960"] == {"rows_before": 2, "rows_after": 2}
+    assert manifest["splits"]["validation.clean"] == {"rows_before": 1, "rows_after": 1}
+
+    train, eval_ds = full_data.load_full_dataset(cfg, model_name="manifesttest")
+    assert len(train) == 2 and len(eval_ds) == 1
+    assert set(train.column_names) >= {"input_features", "labels", "length"}
+
+
+def test_prepare_manifest_speed_perturb_triples(manifest_env):
+    # 变速管线零改动的回归锚:train ×3、eval 不变速(与 test_full_data 的 hf 版同构)
+    cfg, _ = _manifest_cfg(manifest_env, n_utts=1, speed_perturb=[0.9, 1.0, 1.1])
+    manifest = full_data.prepare_full_dataset(cfg, FakeAdapter)
+    assert manifest["splits"]["train.960"]["rows_after"] == 3
+    assert manifest["splits"]["validation.clean"]["rows_after"] == 1
+
+
+def test_load_manifest_source_stale_on_content_change(manifest_env):
+    cfg, mp = _manifest_cfg(manifest_env, n_utts=1)
+    full_data.prepare_full_dataset(cfg, FakeAdapter)
+    mp.write_text(mp.read_text().replace("OK", "NO"))   # 内容变 → md5 变
+    with pytest.raises(ValueError, match="stale"):
+        full_data.load_full_dataset(cfg, model_name="manifesttest")
+
+
+def test_prepare_manifest_missing_file_fails_before_work(manifest_env):
+    # hash 前置(spec §三):jsonl 缺失须在写任何 split 之前抛,不能白算几小时
+    cfg = copy.deepcopy(CFG)
+    cfg["data"]["source"] = "manifest"
+    cfg["data"]["manifest_path"] = str(manifest_env / "nope.jsonl")
+    with pytest.raises(FileNotFoundError):
+        full_data.prepare_full_dataset(cfg, FakeAdapter)
+    assert not (manifest_env / "data" / "full" / "manifesttest").exists()
+
+
+def test_hf_source_dispatch_unchanged(manifest_env):
+    # source 缺省 → hf:仍产既有三 train split 布局(向后兼容锚)
+    manifest = full_data.prepare_full_dataset(CFG, FakeAdapter)
+    assert sorted(manifest["splits"]) == sorted(
+        ["train.clean.100", "train.clean.360", "train.other.500", "validation.clean"]
+    )
