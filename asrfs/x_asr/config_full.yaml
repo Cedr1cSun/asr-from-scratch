@@ -11,13 +11,13 @@ data:
 training:
   learning_rate: 0.045   # ScaledAdam base_lr(icefall recipe 值;非 AdamW 可比)
   warmup_steps: 50       # 占位:Eden 自带 warmup(warmup_batches=500),此键不驱动 Eden
-  max_steps: 66000       # 30 epoch @ 有效 batch 128(icefall num_epochs 30;集群按 manifest rows_after 修正)
+  max_steps: 198000      # 30 epoch @ 有效 batch 128(icefall num_epochs 30;manifest rows_after=843723 含×3变速;197747 取整)
   # 集群纪律:per_device_train_batch_size 会被 harness batch_probe 值覆盖(inert),
   # 唯一可控旋钮是 gradient_accumulation_steps。gen_training_script 前必须按
   # gradient_accumulation_steps = 128 /(probe_bs × n_gpu) 改这行,否则有效 batch
   # 漂移、max_steps(66000=30ep@128)全失配。
-  per_device_train_batch_size: 16
-  gradient_accumulation_steps: 8
+  per_device_train_batch_size: 8    # batch_probe 3090 实测 2026-07-07
+  gradient_accumulation_steps: 8   # = 128/(probe_bs 8 × n_gpu 2),3090 批探测 2026-07-07
   logging_steps: 50
   eval_steps: 1000
   save_steps: 1000

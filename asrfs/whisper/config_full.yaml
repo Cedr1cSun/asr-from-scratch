@@ -10,13 +10,13 @@ model:
 training:
   learning_rate: 1.5e-4          # medium 764M 保守值(spec §4)
   warmup_steps: 4000
-  max_steps: 33000               # 30 epoch @ 有效 batch 256(281k utt;集群按 manifest rows_after 修正)
+  max_steps: 99000               # 30 epoch @ 有效 batch 256(manifest rows_after=843723 含×3变速;98874 取整)
   # 集群纪律:per_device_train_batch_size 会被 harness batch_probe 值覆盖(inert),
   # 唯一可控旋钮是 gradient_accumulation_steps。gen_training_script 前必须按
   # gradient_accumulation_steps = 256 /(probe_bs × n_gpu) 改这行,否则有效 batch
   # 漂移、max_steps(33000=30ep@256)全失配。
-  per_device_train_batch_size: 8
-  gradient_accumulation_steps: 32
+  per_device_train_batch_size: 4    # batch_probe 3090 实测 2026-07-07
+  gradient_accumulation_steps: 16   # = 256/(probe_bs 4 × n_gpu 4),3090 批探测 2026-07-07
   logging_steps: 50
   eval_steps: 1000
   save_steps: 1000
