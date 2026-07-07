@@ -1,6 +1,8 @@
 run_name: sensevoice_full_960h
 
 data:
+  source: manifest   # 公司数据线(spec 2026-07-07):train 读 jsonl 清单;本地 e2e 用 ASRFS_DATA_SOURCE=hf 覆盖
+  manifest_path: /hpc_stor03/sjtu_home/ruichen.sun/librispeech_train_960.jsonl
   n_train: 100
   n_eval: 20
   max_audio_seconds: 30.0 # full mode 过滤

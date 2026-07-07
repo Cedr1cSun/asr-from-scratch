@@ -14,9 +14,12 @@ def _load(model: str, name: str) -> dict:
 
 
 @pytest.mark.parametrize("model", MODELS)
-def test_hash_equality_config_vs_config_full(model):
-    """防 drift(spec §3):params_hash 覆盖键两文件必须同值(按 prepare/load 的
-    实际口径,即带各自 tokenizer 指纹;同模型两文件指纹恒同,等式不受指纹影响)。"""
+def test_hash_equality_config_vs_config_full(model, monkeypatch):
+    """防 drift(spec §3):params_hash 覆盖键两文件必须同值。config_full 走 manifest
+    源、config.yaml 走 hf 源,数据集身份键有意分叉(manifest-loader spec §三),故
+    强制 hf 口径比等——只锁模型/过滤键不漂;manifest 键值本身由
+    test_config_full_manifest_source 锁。"""
+    monkeypatch.setenv("ASRFS_DATA_SOURCE", "hf")
     cfg_full = _load(model, "config_full.yaml")
     cfg_smoke = _load(model, "config.yaml")
     assert full_data.params_hash(
@@ -56,3 +59,11 @@ def test_whisper_full_disables_generate_eval():
 def test_x_asr_full_eden_keys():
     t = _load("x_asr", "config_full.yaml")["training"]
     assert t["lr_batches"] == 7500 and t["lr_epochs"] == 3.5
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_config_full_manifest_source(model):
+    """公司数据线(manifest-loader spec §二):四份 config_full 钉死 manifest 源与集群路径。"""
+    d = _load(model, "config_full.yaml")["data"]
+    assert d["source"] == "manifest"
+    assert d["manifest_path"] == "/hpc_stor03/sjtu_home/ruichen.sun/librispeech_train_960.jsonl"
