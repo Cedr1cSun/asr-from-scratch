@@ -15,9 +15,14 @@ def _load(model: str, name: str) -> dict:
 
 @pytest.mark.parametrize("model", MODELS)
 def test_hash_equality_config_vs_config_full(model):
-    """防 drift(spec §3):params_hash 覆盖键两文件必须同值。"""
-    assert full_data.params_hash(_load(model, "config_full.yaml")) == full_data.params_hash(
-        _load(model, "config.yaml")
+    """防 drift(spec §3):params_hash 覆盖键两文件必须同值(按 prepare/load 的
+    实际口径,即带各自 tokenizer 指纹;同模型两文件指纹恒同,等式不受指纹影响)。"""
+    cfg_full = _load(model, "config_full.yaml")
+    cfg_smoke = _load(model, "config.yaml")
+    assert full_data.params_hash(
+        cfg_full, tokenizer_fingerprint=full_data._tokenizer_fingerprint(model, cfg_full)
+    ) == full_data.params_hash(
+        cfg_smoke, tokenizer_fingerprint=full_data._tokenizer_fingerprint(model, cfg_smoke)
     )
 
 

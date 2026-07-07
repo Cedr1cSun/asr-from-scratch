@@ -10,6 +10,9 @@ from transformers import (
 )
 
 TOKENIZER_SOURCE = "nvidia/parakeet-ctc-0.6b"
+# pin revision:tokenizer/FE 决定 label/特征字节,Hub 侧更新不能悄悄改字节
+# (round-2 审计 F3);指纹入 full_data.params_hash。
+TOKENIZER_REVISION = "ad09ba1cc62743fbc9814de5d2016fca9096485a"
 
 LOSS_FAMILY = "ctc"
 # LABEL_PAD_ID 必须等于 CTC blank id(= tokenizer.vocab_size)。tokenizer 来自
@@ -40,11 +43,16 @@ class ParakeetProcessorBundle:
 
 
 def build_tokenizer() -> ParakeetTokenizerFast:
-    return ParakeetTokenizerFast.from_pretrained(TOKENIZER_SOURCE)
+    return ParakeetTokenizerFast.from_pretrained(TOKENIZER_SOURCE, revision=TOKENIZER_REVISION)
+
+
+def tokenizer_fingerprint(cfg: dict) -> str:
+    """标签/特征字节身份,入 full_data.params_hash(round-2 审计 F1/F2)。"""
+    return f"{TOKENIZER_SOURCE}@{TOKENIZER_REVISION}"
 
 
 def build_feature_extractor() -> ParakeetFeatureExtractor:
-    return ParakeetFeatureExtractor.from_pretrained(TOKENIZER_SOURCE)
+    return ParakeetFeatureExtractor.from_pretrained(TOKENIZER_SOURCE, revision=TOKENIZER_REVISION)
 
 
 def build_processor(cfg: dict) -> ParakeetProcessorBundle:

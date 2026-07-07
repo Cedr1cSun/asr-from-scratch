@@ -268,6 +268,43 @@ def test_perturb_speed_length_relation():
     assert same is audio or np.array_equal(same, audio)  # 1.0 恒等
 
 
+def test_params_hash_includes_tokenizer_fingerprint():
+    # round-2 审计 F1/F2:tokenizer 身份必须参与 hash,否则重训 BPE/Hub 更新
+    # 会静默复用旧 label 缓存。
+    base = full_data.params_hash(CFG)
+    assert base != full_data.params_hash(CFG, tokenizer_fingerprint="spm:aaaa")
+    assert full_data.params_hash(CFG, tokenizer_fingerprint="spm:aaaa") != full_data.params_hash(
+        CFG, tokenizer_fingerprint="spm:bbbb"
+    )
+
+
+def test_tokenizer_fingerprint_registry(tmp_path, monkeypatch):
+    # 未注册(FakeAdapter 的 faketest)→ None,prepare/load 语义不变
+    assert full_data._tokenizer_fingerprint("faketest", CFG) is None
+    # 四个真模型都必须声明指纹
+    fp_x = full_data._tokenizer_fingerprint("x_asr", {})
+    assert fp_x and fp_x.startswith("spm:") and "@" in fp_x
+    assert full_data._tokenizer_fingerprint("parakeet", {}) == (
+        "nvidia/parakeet-ctc-0.6b@ad09ba1cc62743fbc9814de5d2016fca9096485a"
+    )
+    assert full_data._tokenizer_fingerprint("sensevoice", {}) == (
+        "nvidia/parakeet-ctc-0.6b@ad09ba1cc62743fbc9814de5d2016fca9096485a"
+    )
+    fp_w = full_data._tokenizer_fingerprint("whisper", {"model": {"size": "medium"}})
+    assert fp_w == "openai/whisper-medium.en@2e98eb6279edf5095af0c8dedb36bdec0acd172b"
+    # x_asr 指纹跟随 spm 文件内容:换文件字节 → 指纹变 → hash 变 → 旧特征判 stale
+    from asrfs.x_asr import model as xm
+
+    fake = tmp_path / "other.model"
+    fake.write_bytes(b"retrained-bpe-bytes")
+    monkeypatch.setattr(xm, "_BPE_MODEL", fake)
+    fp_retrained = full_data._tokenizer_fingerprint("x_asr", {})
+    assert fp_retrained != fp_x
+    assert full_data.params_hash(CFG, tokenizer_fingerprint=fp_x) != full_data.params_hash(
+        CFG, tokenizer_fingerprint=fp_retrained
+    )
+
+
 def test_duration_filter_is_post_perturb(data_root, monkeypatch):
     # 时长过滤必须作用在【变速后】音频:28s 原始行在 0.9(变长 →31s)应超 30s 上限被弃,
     # 1.0(28s)/1.1(25s)保留 → train rows_after==2。若误在原始长度上过滤(退化为

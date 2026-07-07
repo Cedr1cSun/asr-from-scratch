@@ -6,6 +6,7 @@ RNN-T 接线(全笛卡尔 joint + torchaudio rnnt_loss)、greedy 解码、契约
 结构与决策见 docs/superpowers/specs/2026-07-03-x-asr-from-scratch-design.md。
 """
 
+import hashlib
 import os
 import shutil
 from dataclasses import dataclass
@@ -30,6 +31,9 @@ from asrfs.x_asr._vendor.subsampling import Conv2dSubsampling
 from asrfs.x_asr._vendor.zipformer import Zipformer2
 
 TOKENIZER_SOURCE = "nvidia/parakeet-ctc-0.6b"
+# 只用其 ParakeetFeatureExtractor(80-mel 前端,决定特征字节);pin revision 防
+# Hub 更新导致"字节变了 hash 没变"(round-2 审计 F3)。
+TOKENIZER_REVISION = "ad09ba1cc62743fbc9814de5d2016fca9096485a"
 
 _BPE_MODEL = Path(__file__).resolve().parent / "bpe" / "librispeech_bpe500.model"
 # save_checkpoint/load_checkpoint 之间传递 spm 模型文件用的固定文件名(SURE-EVAL
@@ -322,8 +326,17 @@ def build_tokenizer() -> SpmTokenizer:
     return SpmTokenizer()
 
 
+def tokenizer_fingerprint(cfg: dict) -> str:
+    """标签/特征字节身份,入 full_data.params_hash(round-2 审计 F1/F2):
+    spm 文件内容摘要(重训 BPE 即变,旧特征 label 自动判 stale)+ FE 来源与 pin。"""
+    spm_digest = hashlib.sha256(_BPE_MODEL.read_bytes()).hexdigest()[:16]
+    return f"spm:{spm_digest};fe:{TOKENIZER_SOURCE}@{TOKENIZER_REVISION}"
+
+
 def build_feature_extractor() -> ParakeetFeatureExtractor:
-    return ParakeetFeatureExtractor.from_pretrained(TOKENIZER_SOURCE)
+    return ParakeetFeatureExtractor.from_pretrained(
+        TOKENIZER_SOURCE, revision=TOKENIZER_REVISION
+    )
 
 
 def build_processor(cfg: dict) -> CTCProcessorBundle:

@@ -75,8 +75,26 @@ def _normalized_speed_perturb(data_cfg: dict) -> list[float]:
     return [float(x) for x in raw]
 
 
-def params_hash(cfg: dict) -> str:
-    """sha256(排序后的特征相关 cfg 子集):model 段 + 过滤参数 + 数据 revision + dtype。
+def _tokenizer_fingerprint(model_name: str, cfg: dict) -> str | None:
+    """适配包声明的 tokenizer/FE 字节身份(round-2 审计 F1/F2)。
+
+    labels 与特征由 tokenizer/feature extractor 决定,但它们活在代码里而非 cfg,
+    单靠 cfg 子集哈希抓不到"重训 BPE / Hub 更新 tokenizer"这类变更 → 旧缓存会被
+    静默复用。各 asrfs.<model>.model 暴露 tokenizer_fingerprint(cfg) -> str
+    (x_asr:spm 文件 sha256;其余:source@pinned-revision)。未注册模型(单测
+    FakeAdapter 等)返回 None——键仍写入 hash,语义稳定。惰性 import,无环。
+    """
+    try:
+        mod = importlib.import_module(f"asrfs.{model_name}.model")
+    except ModuleNotFoundError:
+        return None
+    fp = getattr(mod, "tokenizer_fingerprint", None)
+    return fp(cfg) if callable(fp) else None
+
+
+def params_hash(cfg: dict, tokenizer_fingerprint: str | None = None) -> str:
+    """sha256(排序后的特征相关 cfg 子集):model 段 + 过滤参数 + 数据 revision + dtype
+    + tokenizer 指纹。
 
     training/smoke/run_name 与 data.n_train/n_eval 不影响预计算特征,排除在外,
     避免调训练超参就把 60 GB 特征判失效;model.gradient_checkpointing/
@@ -84,7 +102,8 @@ def params_hash(cfg: dict) -> str:
     augment 段是训练期特征增广(datasets set_transform 挂接,惰性、非预计算),不
     改变磁盘上的特征字节,同样排除;data.speed_perturb 是预计算期变速增广(train
     split 三态 0.9/1.0/1.1,见 prepare_full_dataset/_perturb_speed),改变特征字节,
-    故纳入 hash(缺键按显式 [1.0] 归一化)。
+    故纳入 hash(缺键按显式 [1.0] 归一化)。tokenizer_fingerprint 见
+    _tokenizer_fingerprint——prepare/load 双侧都传,保证"换 tokenizer ⇒ 判 stale"。
     """
     data_cfg = cfg.get("data") or {}
     model_section = {k: v for k, v in cfg.items() if k not in _NON_FEATURE_CFG_KEYS}
@@ -99,6 +118,7 @@ def params_hash(cfg: dict) -> str:
         "speed_perturb": _normalized_speed_perturb(data_cfg),
         "librispeech_revision": LIBRISPEECH_REVISION,
         "feature_dtype": FEATURE_DTYPE,
+        "tokenizer_fingerprint": tokenizer_fingerprint,
     }
     payload = json.dumps(subset, sort_keys=True, default=str).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
@@ -159,7 +179,9 @@ def prepare_full_dataset(cfg: dict, processor_adapter, subset_head: int | None =
     speed_factors = _normalized_speed_perturb(cfg.get("data") or {})
     adapter = processor_adapter
     processor = adapter.build_processor(cfg)
-    out_root = full_dir(model_name_of(adapter))
+    model_name = model_name_of(adapter)
+    tokenizer_fp = _tokenizer_fingerprint(model_name, cfg)
+    out_root = full_dir(model_name)
     out_root.mkdir(parents=True, exist_ok=True)
 
     # 不变量:manifest.json 存在 ⇒ 磁盘上所有 split 均已重写完成且与其 hash 一致。
@@ -195,7 +217,7 @@ def prepare_full_dataset(cfg: dict, processor_adapter, subset_head: int | None =
         "splits": manifest_splits,
         "feature_dir": str(out_root),
         "dtype": FEATURE_DTYPE,
-        "params_hash": params_hash(cfg),
+        "params_hash": params_hash(cfg, tokenizer_fingerprint=tokenizer_fp),
         "subset_head": subset_head,
     }
     (out_root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
@@ -216,7 +238,7 @@ def load_full_dataset(cfg: dict, model_name: str | None = None) -> tuple:
             f"--config <config.yaml> --adapter asrfs.{model_name}"
         )
     manifest = json.loads(manifest_path.read_text())
-    expected = params_hash(cfg)
+    expected = params_hash(cfg, tokenizer_fingerprint=_tokenizer_fingerprint(model_name, cfg))
     if manifest["params_hash"] != expected:
         raise ValueError(
             f"stale full-mode features for {model_name}: manifest params_hash "

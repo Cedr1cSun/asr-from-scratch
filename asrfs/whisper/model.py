@@ -58,9 +58,27 @@ def tokenizer_source(size: str) -> str:
     return f"openai/whisper-{size}.en"
 
 
+# pin revision:tokenizer/FE 决定 label/特征字节,Hub 侧更新不能悄悄改字节
+# (round-2 审计 F3);指纹入 full_data.params_hash。未列 size 不 pin(revision=None
+# 等价省略),指纹标 unpinned。
+TOKENIZER_REVISIONS = {
+    "medium": "2e98eb6279edf5095af0c8dedb36bdec0acd172b",
+    "small": "e8727524f962ee844a7319d92be39ac1bd25655a",
+}
+
+
+def tokenizer_fingerprint(cfg: dict) -> str:
+    """标签/特征字节身份,入 full_data.params_hash(round-2 审计 F1/F2)。"""
+    size = cfg["model"]["size"]
+    return f"{tokenizer_source(size)}@{TOKENIZER_REVISIONS.get(size, 'unpinned')}"
+
+
 def build_processor(cfg: dict) -> WhisperProcessor:
     """适配契约 build_processor:统一收 cfg。"""
-    return WhisperProcessor.from_pretrained(tokenizer_source(cfg["model"]["size"]))
+    size = cfg["model"]["size"]
+    return WhisperProcessor.from_pretrained(
+        tokenizer_source(size), revision=TOKENIZER_REVISIONS.get(size)
+    )
 
 
 def build_model(cfg: dict) -> WhisperForConditionalGeneration:
@@ -68,7 +86,9 @@ def build_model(cfg: dict) -> WhisperForConditionalGeneration:
     m = cfg["model"]
     config = WhisperConfig(**SIZE_PRESETS[m["size"]], apply_spec_augment=m["apply_spec_augment"])
     model = WhisperForConditionalGeneration(config)
-    model.generation_config = GenerationConfig.from_pretrained(tokenizer_source(m["size"]))
+    model.generation_config = GenerationConfig.from_pretrained(
+        tokenizer_source(m["size"]), revision=TOKENIZER_REVISIONS.get(m["size"])
+    )
     # decode 契约的解码长度单一来源:cfg model.generation_max_length -> generation_config
     model.generation_config.max_new_tokens = int(m["generation_max_length"])
     return model
