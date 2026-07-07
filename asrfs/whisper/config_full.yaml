@@ -16,7 +16,7 @@ training:
   # gradient_accumulation_steps = 256 /(probe_bs × n_gpu) 改这行,否则有效 batch
   # 漂移、max_steps(33000=30ep@256)全失配。
   per_device_train_batch_size: 4    # batch_probe 3090 实测 2026-07-07
-  gradient_accumulation_steps: 8    # = 256/(probe_bs 4 × n_gpu 8),集中算力先出 whisper(用户 2026-07-08)
+  gradient_accumulation_steps: 16   # = 256/(probe_bs 4 × n_gpu 4);8 卡整机只有 A10 借调节点、外来 pod ~6min 必被杀(2026-07-08 实测),whisper 落 4×3090
   logging_steps: 50
   eval_steps: 1000
   save_steps: 1000

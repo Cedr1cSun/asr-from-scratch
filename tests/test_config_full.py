@@ -40,12 +40,12 @@ def test_config_full_augment_section(model):
 
 @pytest.mark.parametrize(
     "model,max_steps,warmup,probe_bs,ga,n_gpu",
-    [("whisper", 33000, 4000, 4, 8, 8), ("parakeet", 66000, 2000, 32, 1, 4),
-     ("sensevoice", 66000, 2000, 32, 1, 4), ("x_asr", 66000, 50, 8, 2, 8)],
+    [("whisper", 33000, 4000, 4, 16, 4), ("parakeet", 66000, 2000, 32, 1, 4),
+     ("sensevoice", 66000, 2000, 32, 1, 4), ("x_asr", 66000, 50, 8, 4, 4)],
 )
 def test_config_full_960h_training_values(model, max_steps, warmup, probe_bs, ga, n_gpu):
     """2026-07-07 3090 标定:per_device=batch_probe 实测;集中算力分阶段(用户
-    2026-07-08):whisper 先 8 卡,再 parakeet/sensevoice 各 4 卡,末 x_asr 8 卡;
+    2026-07-08):全员 4 卡制——8 卡整机仅 A10 借调节点、外来 pod ~6min 被杀(实测);
     epoch 按原始 281241 行计、parakeet/sensevoice 50→30ep(3-5 天时限)。有效
     batch 等式含 n_gpu,单看 config 两键不再自洽。"""
     t = _load(model, "config_full.yaml")["training"]
