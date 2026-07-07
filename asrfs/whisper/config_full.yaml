@@ -10,7 +10,7 @@ model:
 training:
   learning_rate: 1.5e-4          # medium 764M 保守值(spec §4)
   warmup_steps: 4000
-  max_steps: 99000               # 30 epoch @ 有效 batch 256(manifest rows_after=843723 含×3变速;98874 取整)
+  max_steps: 33000               # 30 epoch @ 有效 batch 256,epoch 按原始 281241 行计(用户 2026-07-08 定 3-5 天上限;变速副本少复看,增广仍生效)
   # 集群纪律:per_device_train_batch_size 会被 harness batch_probe 值覆盖(inert),
   # 唯一可控旋钮是 gradient_accumulation_steps。gen_training_script 前必须按
   # gradient_accumulation_steps = 256 /(probe_bs × n_gpu) 改这行,否则有效 batch

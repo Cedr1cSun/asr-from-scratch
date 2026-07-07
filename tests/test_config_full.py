@@ -40,13 +40,14 @@ def test_config_full_augment_section(model):
 
 @pytest.mark.parametrize(
     "model,max_steps,warmup,probe_bs,ga,n_gpu",
-    [("whisper", 99000, 4000, 4, 16, 4), ("parakeet", 330000, 2000, 32, 4, 1),
-     ("sensevoice", 330000, 2000, 32, 4, 1), ("x_asr", 198000, 50, 8, 8, 2)],
+    [("whisper", 33000, 4000, 4, 16, 4), ("parakeet", 66000, 2000, 32, 4, 1),
+     ("sensevoice", 66000, 2000, 32, 4, 1), ("x_asr", 66000, 50, 8, 8, 2)],
 )
 def test_config_full_960h_training_values(model, max_steps, warmup, probe_bs, ga, n_gpu):
     """2026-07-07 3090 标定:per_device=batch_probe 实测,GA 按排卡(whisper 4 卡/
-    parakeet 1/sensevoice 1/x_asr 2)配平;max_steps 按 manifest rows_after=843723
-    (含 ×3 变速)修正。有效 batch 等式含 n_gpu,单看 config 两键不再自洽。"""
+    parakeet 1/sensevoice 1/x_asr 2)配平;epoch 按原始 281241 行计、parakeet/
+    sensevoice 50→30ep(用户 2026-07-08 定 3-5 天时限)。有效 batch 等式含 n_gpu,
+    单看 config 两键不再自洽。"""
     t = _load(model, "config_full.yaml")["training"]
     assert t["max_steps"] == max_steps and t["warmup_steps"] == warmup
     assert t["eval_steps"] == 1000 and t["save_steps"] == 1000
