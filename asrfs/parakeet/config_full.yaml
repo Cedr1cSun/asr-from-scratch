@@ -9,15 +9,20 @@ data:
   speed_perturb: [0.9, 1.0, 1.1]  # full 预计算三态变速增广;smoke 不读,仅保 hash 等式两文件同值
 
 training:
-  learning_rate: 3.0e-4    # mini100 实证值(spec §4)
-  warmup_steps: 2000
-  max_steps: 66000         # 30 epoch @ 有效 batch 128,epoch 按原始 281241 行计;50ep→30ep(调研区间下沿,用户 2026-07-08 定 3-5 天上限)
+  # blank collapse 处置(2026-07-08,960h 首跑 13k 步 blank 100% 判死):
+  # 纯 CTC 从零训三药方——LR 3e-4→1.5e-4(NeMo#5502 同构 256d×16L 先例,官方按
+  # batch 2048 标定 3.1e-3,折算 128≈1.9e-4,原 3e-4 偏高);warmup 2000→5000
+  # (规范值 NeMo 10k/ESPnet 40k/icefall 80k,按 33k 总步数取 15%);有效 batch
+  # 128→256(NeMo 维护者:纯 CTC Conformer 全局 batch 最低 256 才稳)。
+  learning_rate: 1.5e-4
+  warmup_steps: 5000
+  max_steps: 33000         # 30 epoch @ 有效 batch 256,epoch 按原始 281241 行计
   # 集群纪律:per_device_train_batch_size 会被 harness batch_probe 值覆盖(inert),
   # 唯一可控旋钮是 gradient_accumulation_steps。gen_training_script 前必须按
-  # gradient_accumulation_steps = 128 /(probe_bs × n_gpu) 改这行,否则有效 batch
-  # 漂移、max_steps(110000=50ep@128)全失配。
+  # gradient_accumulation_steps = 256 /(probe_bs × n_gpu) 改这行,否则有效 batch
+  # 漂移、max_steps 全失配。
   per_device_train_batch_size: 32   # batch_probe 3090 实测 2026-07-07
-  gradient_accumulation_steps: 1   # = 128/(probe_bs 32 × n_gpu 4),阶段二与 sensevoice 各 4 卡并行
+  gradient_accumulation_steps: 2   # = 256/(probe_bs 32 × n_gpu 4)
   dataloader_num_workers: 8      # NFS 特征随机读,workers=0 时 GPU 饥饿(2026-07-08 实测 67s/step,4×预期)
   dataloader_prefetch_factor: 4
   dataloader_persistent_workers: true
