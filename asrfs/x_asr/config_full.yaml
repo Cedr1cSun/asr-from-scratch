@@ -9,15 +9,17 @@ data:
   speed_perturb: [0.9, 1.0, 1.1]  # full 预计算三态变速增广;smoke 不读,仅保 hash 等式两文件同值
 
 training:
-  learning_rate: 0.045   # ScaledAdam base_lr(icefall recipe 值;非 AdamW 可比)
+  learning_rate: 0.04    # ScaledAdam base_lr = icefall Zipformer-S 官方值(--base-lr 0.04;
+                         # 2026-07-08 调研:S 配方 3000s 音频/批,原 GA4 只有 1500s 却配 0.045,
+                         # 批减半 LR 反高;#1462 有小批发散先例)
   warmup_steps: 50       # 占位:Eden 自带 warmup(warmup_batches=500),此键不驱动 Eden
-  max_steps: 66000       # 30 epoch @ 有效 batch 128(icefall num_epochs 30),epoch 按原始 281241 行计(用户 2026-07-08 定 3-5 天上限)
+  max_steps: 33000       # 30 epoch @ 有效 batch 256(≈3000s 音频/批,对齐 icefall S 配方),epoch 按原始 281241 行计
   # 集群纪律:per_device_train_batch_size 会被 harness batch_probe 值覆盖(inert),
   # 唯一可控旋钮是 gradient_accumulation_steps。gen_training_script 前必须按
-  # gradient_accumulation_steps = 128 /(probe_bs × n_gpu) 改这行,否则有效 batch
-  # 漂移、max_steps(66000=30ep@128)全失配。
+  # gradient_accumulation_steps = 256 /(probe_bs × n_gpu) 改这行,否则有效 batch
+  # 漂移、max_steps 全失配。
   per_device_train_batch_size: 8    # batch_probe 3090 实测 2026-07-07
-  gradient_accumulation_steps: 4   # = 128/(probe_bs 8 × n_gpu 4);8 卡整机节点不可用(A10 借调,外来 pod 必死),改 4×3090
+  gradient_accumulation_steps: 8   # = 256/(probe_bs 8 × n_gpu 4);有效批 ≈3000s 音频 = icefall S 配方值
   dataloader_num_workers: 8      # NFS 特征随机读,workers=0 时 GPU 饥饿(2026-07-08 实测 67s/step,4×预期)
   dataloader_prefetch_factor: 4
   dataloader_persistent_workers: true
