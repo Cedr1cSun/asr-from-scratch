@@ -2,8 +2,7 @@
 
 结构参照 FunAudioLLM/SenseVoice model.py(SenseVoiceEncoderSmall /
 EncoderLayerSANM / MultiHeadedAttentionSANM);LFR 与 Sinusoidal PE 公式
-vendor 自 funasr,自含实现,不引入 funasr 依赖。缩小版结构与忠实度边界
-见 docs/superpowers/specs/2026-07-03-sensevoice-from-scratch-design.md。
+vendor 自 funasr,自含实现,不引入 funasr 依赖。
 """
 
 import math

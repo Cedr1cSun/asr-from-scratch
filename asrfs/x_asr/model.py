@@ -3,7 +3,6 @@
 encoder/decoder/joiner/优化器全部来自 _vendor(icefall @ 7a35ca2,手术清单见
 _vendor/VENDOR.md);本文件只做:HF Config/PreTrainedModel 包装、forward 的
 RNN-T 接线(全笛卡尔 joint + torchaudio rnnt_loss)、greedy 解码、契约函数。
-结构与决策见 docs/superpowers/specs/2026-07-03-x-asr-from-scratch-design.md。
 """
 
 import hashlib
